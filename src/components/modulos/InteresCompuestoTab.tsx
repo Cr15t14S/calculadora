@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RotateCcw, Sparkles } from 'lucide-react';
+import { Eraser } from 'lucide-react';
 import {
   ErrorFinanciero,
   fmtDinero,
@@ -25,13 +25,6 @@ const OPCIONES: Array<{ id: IncognitaIC; titulo: string; simbolo: string }> = [
   { id: 'VP', titulo: 'Valor Presente', simbolo: 'VP' },
   { id: 'i', titulo: 'Tasa periódica', simbolo: 'i' },
   { id: 'n', titulo: 'Periodos', simbolo: 'n' },
-];
-
-const EJEMPLOS = [
-  { label: '$1M al 2 % · 12 per.', inc: 'VF' as IncognitaIC, vp: '1.000.000', vf: '', i: '2', n: '12' },
-  { label: 'Descontar $5M (24 m)', inc: 'VP' as IncognitaIC, vp: '', vf: '5.000.000', i: '1,8', n: '24' },
-  { label: 'Hallar tasa ($2M→$3M)', inc: 'i' as IncognitaIC, vp: '2.000.000', vf: '3.000.000', i: '', n: '18' },
-  { label: 'Duplicar al 2,5 %', inc: 'n' as IncognitaIC, vp: '1.000.000', vf: '2.000.000', i: '2,5', n: '' },
 ];
 
 function GraficaCrecimiento({
@@ -126,7 +119,6 @@ function GraficaCrecimiento({
               setHoverIdx(idx);
             }}
           >
-            {/* Grid horizontal */}
             {yTicks.map((val, idx) => (
               <g key={idx}>
                 <line
@@ -148,7 +140,6 @@ function GraficaCrecimiento({
               </g>
             ))}
 
-            {/* Eje X */}
             {xTicks.map((t, idx) => (
               <text
                 key={idx}
@@ -161,7 +152,6 @@ function GraficaCrecimiento({
               </text>
             ))}
 
-            {/* Área capital base */}
             {vp > 0 && (
               <rect
                 x={pad.left}
@@ -174,7 +164,6 @@ function GraficaCrecimiento({
               />
             )}
 
-            {/* Área interés compuesto */}
             <path
               d={areaComp}
               fill={totalGanado >= 0 ? '#0d5c46' : '#9f1239'}
@@ -182,7 +171,6 @@ function GraficaCrecimiento({
               className="svg-smooth"
             />
 
-            {/* Línea interés simple (referencia) */}
             <polyline
               fill="none"
               stroke="#b45309"
@@ -192,7 +180,6 @@ function GraficaCrecimiento({
               className="svg-smooth"
             />
 
-            {/* Línea interés compuesto */}
             <polyline
               key={`${vp}-${vf}-${n}`}
               fill="none"
@@ -203,7 +190,6 @@ function GraficaCrecimiento({
               className="svg-draw-line"
             />
 
-            {/* Punto activo / hover */}
             {active && (
               <g>
                 <line
@@ -235,7 +221,6 @@ function GraficaCrecimiento({
             )}
           </svg>
 
-          {/* Barra de lectura del punto inspeccionado */}
           {active && (
             <div className="mt-1 grid grid-cols-2 gap-2 border-t border-[var(--line)] bg-white px-3 py-2 text-xs sm:grid-cols-4">
               <div>
@@ -273,7 +258,6 @@ function GraficaCrecimiento({
         </div>
       </div>
 
-      {/* Barra proporcional Capital vs Intereses */}
       {vf > 0 && vp > 0 && vf >= vp && (
         <div className="border border-[var(--line)] bg-white px-4 py-3">
           <div className="mb-1.5 flex items-center justify-between text-[11px]">
@@ -302,10 +286,10 @@ function GraficaCrecimiento({
 
 export function InteresCompuestoTab({ tasaTransferida }: Props) {
   const [incognita, setIncognita] = useState<IncognitaIC>('VF');
-  const [vpStr, setVpStr] = useState('1.000.000');
-  const [vfStr, setVfStr] = useState('1.268.241,79');
-  const [iStr, setIStr] = useState('2');
-  const [nStr, setNStr] = useState('12');
+  const [vpStr, setVpStr] = useState('');
+  const [vfStr, setVfStr] = useState('');
+  const [iStr, setIStr] = useState('');
+  const [nStr, setNStr] = useState('');
 
   useEffect(() => {
     if (tasaTransferida) {
@@ -315,29 +299,34 @@ export function InteresCompuestoTab({ tasaTransferida }: Props) {
   }, [tasaTransferida]);
 
   const calculo = useMemo(() => {
+    const faltan =
+      (incognita !== 'VP' && !vpStr.trim()) ||
+      (incognita !== 'VF' && !vfStr.trim()) ||
+      (incognita !== 'i' && !iStr.trim()) ||
+      (incognita !== 'n' && !nStr.trim());
+
+    if (faltan) {
+      return { estado: 'vacio' as const };
+    }
+
     try {
       const vp = incognita !== 'VP' ? parsearNumero(vpStr, 'Valor Presente VP', { esMonto: true }) : undefined;
       const vf = incognita !== 'VF' ? parsearNumero(vfStr, 'Valor Futuro VF', { esMonto: true }) : undefined;
       const i = incognita !== 'i' ? parsearTasa(iStr, 'Tasa periódica i') : undefined;
       const n = incognita !== 'n' ? parsearNumero(nStr, 'Número de periodos n') : undefined;
-      return { ok: true as const, data: resolverInteresCompuesto({ incognita, vp, vf, i, n }) };
+      return {
+        estado: 'ok' as const,
+        data: resolverInteresCompuesto({ incognita, vp, vf, i, n }),
+      };
     } catch (err) {
       const msg = err instanceof ErrorFinanciero ? err.message : 'Revise los datos ingresados.';
-      return { ok: false as const, error: msg };
+      return { estado: 'error' as const, error: msg };
     }
   }, [incognita, vpStr, vfStr, iStr, nStr]);
 
-  const aplicarEjemplo = (ej: (typeof EJEMPLOS)[number]) => {
-    setIncognita(ej.inc);
-    if (ej.vp) setVpStr(ej.vp);
-    if (ej.vf) setVfStr(ej.vf);
-    if (ej.i) setIStr(ej.i);
-    if (ej.n) setNStr(ej.n);
-  };
-
   const valorMostrado = (campo: IncognitaIC, textoActual: string) => {
     if (incognita !== campo) return textoActual;
-    if (!calculo.ok) return '';
+    if (calculo.estado !== 'ok') return '';
     if (campo === 'VF' || campo === 'VP') return fmtDinero(calculo.data.valor);
     if (campo === 'i') return fmtPct(calculo.data.valor, 4);
     return fmtNum(calculo.data.valor, 4);
@@ -345,37 +334,16 @@ export function InteresCompuestoTab({ tasaTransferida }: Props) {
 
   return (
     <div className="animate-panel space-y-6">
-      {/* Cabecera del módulo + Ejemplos rápidos */}
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
-        <div>
-          <p className="font-mono-num text-[11px] uppercase tracking-[0.12em] text-[var(--emerald)]">
-            Módulo 01 · Capitalización y Descuento
-          </p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--ink)]">
-            Interés compuesto básico
-          </h2>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ink-faint)]">
-            <Sparkles className="h-3.5 w-3.5" /> Ejemplos:
-          </span>
-          {EJEMPLOS.map((ej) => (
-            <button
-              key={ej.label}
-              type="button"
-              onClick={() => aplicarEjemplo(ej)}
-              className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--ink)] hover:text-[var(--ink)]"
-            >
-              {ej.label}
-            </button>
-          ))}
-        </div>
+      <div className="border-b border-[var(--line)] pb-4">
+        <p className="font-mono-num text-[11px] uppercase tracking-[0.12em] text-[var(--emerald)]">
+          Módulo 01 · Capitalización y Descuento
+        </p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--ink)]">
+          Interés compuesto básico
+        </h2>
       </div>
 
-      {/* Cuerpo 2 columnas */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Panel de entradas */}
         <div className="space-y-5 border border-[var(--line)] bg-white p-5 lg:col-span-5">
           <div>
             <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-muted)]">
@@ -460,24 +428,32 @@ export function InteresCompuestoTab({ tasaTransferida }: Props) {
             <button
               type="button"
               onClick={() => {
-                setVpStr('1.000.000');
-                setVfStr('1.268.241,79');
-                setIStr('2');
-                setNStr('12');
-                setIncognita('VF');
+                setVpStr('');
+                setVfStr('');
+                setIStr('');
+                setNStr('');
               }}
               className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
             >
-              <RotateCcw className="h-3.5 w-3.5" /> Restablecer
+              <Eraser className="h-3.5 w-3.5" /> Limpiar
             </button>
           </div>
         </div>
 
-        {/* Resultados + Gráfica */}
         <div className="space-y-4 lg:col-span-7">
-          {!calculo.ok ? (
+          {calculo.estado === 'vacio' ? (
+            <div className="chart-grid-bg flex min-h-[340px] flex-col items-center justify-center border border-[var(--line)] p-8 text-center">
+              <p className="font-editorial text-lg font-semibold text-[var(--ink)]">
+                Ingrese los datos para calcular {incognita}
+              </p>
+              <p className="mt-1.5 max-w-sm text-xs text-[var(--ink-muted)]">
+                Complete los tres campos conocidos en el panel izquierdo para ver el resultado, la
+                fórmula desarrollada y la curva de capitalización en tiempo real.
+              </p>
+            </div>
+          ) : calculo.estado === 'error' ? (
             <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-5 text-sm text-[var(--crimson)]">
-              <strong className="block font-semibold">Dato incompleto o inválido</strong>
+              <strong className="block font-semibold">Dato inválido</strong>
               <span className="mt-1 block">{calculo.error}</span>
             </div>
           ) : (

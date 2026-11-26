@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
   Download,
+  Eraser,
   FileSpreadsheet,
   Plus,
-  Sparkles,
   Trash2,
   TrendingDown,
+  X,
 } from 'lucide-react';
 import {
   ErrorFinanciero,
@@ -39,23 +40,27 @@ function GraficaSaldoPrestamo({
   filas,
   filasBase,
   hayExtras,
+  selectedPeriodo,
+  onSelectPeriodo,
 }: {
   filas: FilaPrestamo[];
   filasBase: FilaPrestamo[];
   hayExtras: boolean;
+  selectedPeriodo: number | null;
+  onSelectPeriodo: (periodo: number | null) => void;
 }) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [hoverPeriodo, setHoverPeriodo] = useState<number | null>(null);
   if (filas.length < 2) return null;
 
   const W = 660;
-  const H = 260;
-  const pad = { top: 22, right: 24, bottom: 34, left: 66 };
+  const H = 268;
+  const pad = { top: 28, right: 24, bottom: 34, left: 66 };
   const plotW = W - pad.left - pad.right;
   const plotH = H - pad.top - pad.bottom;
 
   const maxP = Math.max(filas[filas.length - 1].periodo, filasBase[filasBase.length - 1].periodo, 1);
   const maxY =
-    Math.max(...filas.map((f) => f.saldoFinal), ...filasBase.map((f) => f.saldoFinal), 1) * 1.06;
+    Math.max(...filas.map((f) => f.saldoFinal), ...filasBase.map((f) => f.saldoFinal), 1) * 1.08;
 
   const xOf = (p: number) => pad.left + (p / maxP) * plotW;
   const yOf = (v: number) => pad.top + ((maxY - v) / maxY) * plotH;
@@ -68,21 +73,31 @@ function GraficaSaldoPrestamo({
 
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((r) => maxY * r);
   const xTicks = [0, 0.25, 0.5, 0.75, 1].map((r) => Math.round(maxP * r));
-  const active = hoverIdx !== null ? filas[hoverIdx] : null;
+
+  const filaSeleccionada =
+    selectedPeriodo !== null ? filas.find((f) => f.periodo === selectedPeriodo) ?? null : null;
+  const filaHover =
+    hoverPeriodo !== null ? filas.find((f) => f.periodo === hoverPeriodo) ?? null : null;
+  const active = filaHover ?? filaSeleccionada;
   const filasConExtra = filas.filter((f) => f.extra !== null && Math.abs(f.extra) > 0.01);
+
+  const resolverPeriodo = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * W;
+    const periodo = Math.max(0, Math.min(maxP, Math.round(((relX - pad.left) / plotW) * maxP)));
+    return filas.some((f) => f.periodo === periodo) ? periodo : null;
+  };
 
   return (
     <div className="chart-grid-bg p-2">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="h-auto w-full select-none"
-        onMouseLeave={() => setHoverIdx(null)}
-        onMouseMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const relX = ((e.clientX - rect.left) / rect.width) * W;
-          const periodoHover = Math.round(((relX - pad.left) / plotW) * maxP);
-          const idx = filas.findIndex((f) => f.periodo === periodoHover);
-          if (idx >= 0) setHoverIdx(idx);
+        className="h-auto w-full cursor-crosshair select-none"
+        onMouseLeave={() => setHoverPeriodo(null)}
+        onMouseMove={(e) => setHoverPeriodo(resolverPeriodo(e))}
+        onClick={(e) => {
+          const p = resolverPeriodo(e);
+          if (p !== null) onSelectPeriodo(selectedPeriodo === p ? null : p);
         }}
       >
         {yTicks.map((val, idx) => (
@@ -118,7 +133,6 @@ function GraficaSaldoPrestamo({
           </text>
         ))}
 
-        {/* Plan original fantasma si hay movimientos extra */}
         {hayExtras && (
           <polyline
             fill="none"
@@ -130,10 +144,8 @@ function GraficaSaldoPrestamo({
           />
         )}
 
-        {/* Área saldo actual */}
         <path d={areaActual} fill="#0d5c46" fillOpacity="0.12" className="svg-smooth" />
 
-        {/* Línea saldo actual */}
         <polyline
           key={`saldo-${filas.length}-${filas[0].saldoFinal}-${filasConExtra.length}`}
           fill="none"
@@ -144,7 +156,6 @@ function GraficaSaldoPrestamo({
           className="svg-draw-line"
         />
 
-        {/* Marcadores de abonos extra / desembolsos */}
         {filasConExtra.map((f) => {
           const esAbono = (f.extra ?? 0) > 0;
           const color = esAbono ? '#1d4ed8' : '#9f1239';
@@ -158,21 +169,78 @@ function GraficaSaldoPrestamo({
           );
         })}
 
-        {/* Hover cursor */}
-        {active && (
+        {/* Marcador fijado desde la fila seleccionada en la tabla */}
+        {filaSeleccionada && (
+          <g className="svg-smooth">
+            <line
+              x1={xOf(filaSeleccionada.periodo)}
+              x2={xOf(filaSeleccionada.periodo)}
+              y1={pad.top - 4}
+              y2={yOf(0)}
+              stroke="#1d4ed8"
+              strokeWidth="2"
+            />
+            <line
+              x1={pad.left}
+              x2={xOf(filaSeleccionada.periodo)}
+              y1={yOf(filaSeleccionada.saldoFinal)}
+              y2={yOf(filaSeleccionada.saldoFinal)}
+              stroke="#1d4ed8"
+              strokeWidth="1.2"
+              strokeDasharray="4 3"
+            />
+            <circle
+              cx={xOf(filaSeleccionada.periodo)}
+              cy={yOf(filaSeleccionada.saldoFinal)}
+              r="9"
+              fill="#1d4ed8"
+              fillOpacity="0.18"
+            />
+            <circle
+              cx={xOf(filaSeleccionada.periodo)}
+              cy={yOf(filaSeleccionada.saldoFinal)}
+              r="5.5"
+              fill="#1d4ed8"
+              stroke="#ffffff"
+              strokeWidth="2"
+            />
+            {(() => {
+              const cx = xOf(filaSeleccionada.periodo);
+              const boxW = 92;
+              const bx = Math.max(pad.left, Math.min(W - pad.right - boxW, cx - boxW / 2));
+              return (
+                <g>
+                  <rect x={bx} y={4} width={boxW} height={18} fill="#1d4ed8" />
+                  <text
+                    x={bx + boxW / 2}
+                    y={16}
+                    textAnchor="middle"
+                    className="fill-white font-mono-num text-[10px] font-semibold"
+                  >
+                    P{filaSeleccionada.periodo} · {fmtDineroCorto(filaSeleccionada.saldoFinal)}
+                  </text>
+                </g>
+              );
+            })()}
+          </g>
+        )}
+
+        {/* Cursor temporal al pasar el mouse */}
+        {filaHover && filaHover.periodo !== selectedPeriodo && (
           <g>
             <line
-              x1={xOf(active.periodo)}
-              x2={xOf(active.periodo)}
+              x1={xOf(filaHover.periodo)}
+              x2={xOf(filaHover.periodo)}
               y1={pad.top}
               y2={yOf(0)}
               stroke="#171614"
               strokeWidth="1"
+              strokeDasharray="3 3"
             />
             <circle
-              cx={xOf(active.periodo)}
-              cy={yOf(active.saldoFinal)}
-              r="5"
+              cx={xOf(filaHover.periodo)}
+              cy={yOf(filaHover.saldoFinal)}
+              r="4.5"
               fill="#0d5c46"
               stroke="#ffffff"
               strokeWidth="2"
@@ -184,8 +252,12 @@ function GraficaSaldoPrestamo({
       {active && (
         <div className="mt-1 grid grid-cols-2 gap-2 border-t border-[var(--line)] bg-white px-3 py-2 text-xs sm:grid-cols-4">
           <div>
-            <span className="block text-[10px] uppercase text-[var(--ink-faint)]">Periodo</span>
-            <span className="font-mono-num font-semibold">{active.periodo}</span>
+            <span className="block text-[10px] uppercase text-[var(--ink-faint)]">
+              Periodo {filaHover ? '(cursor)' : '(seleccionado)'}
+            </span>
+            <span className="font-mono-num font-semibold text-[var(--cobalt)]">
+              Periodo {active.periodo}
+            </span>
           </div>
           <div>
             <span className="block text-[10px] uppercase text-[var(--ink-faint)]">Saldo final</span>
@@ -211,36 +283,49 @@ function GraficaSaldoPrestamo({
   );
 }
 
-function GraficaBarrasCuota({ filas }: { filas: FilaPrestamo[] }) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+function GraficaBarrasCuota({
+  filas,
+  selectedPeriodo,
+  onSelectPeriodo,
+}: {
+  filas: FilaPrestamo[];
+  selectedPeriodo: number | null;
+  onSelectPeriodo: (periodo: number | null) => void;
+}) {
+  const [hoverPeriodo, setHoverPeriodo] = useState<number | null>(null);
   const sinCero = filas.slice(1);
   if (sinCero.length === 0) return null;
 
-  // Si hay más de 48 periodos, muestreamos visualmente para mantener barras nítidas
   const paso = sinCero.length > 48 ? Math.ceil(sinCero.length / 48) : 1;
-  const visibles = sinCero.filter((_, idx) => idx % paso === 0 || idx === sinCero.length - 1);
+  const visibles = sinCero.filter(
+    (f, idx) => idx % paso === 0 || idx === sinCero.length - 1 || f.periodo === selectedPeriodo
+  );
 
   const W = 660;
-  const H = 260;
-  const pad = { top: 22, right: 20, bottom: 34, left: 66 };
+  const H = 268;
+  const pad = { top: 28, right: 20, bottom: 34, left: 66 };
   const plotW = W - pad.left - pad.right;
   const plotH = H - pad.top - pad.bottom;
 
-  const maxBar = Math.max(
-    1,
-    ...visibles.map((f) => (f.interes ?? 0) + Math.max(0, f.abono ?? 0) + Math.max(0, f.extra ?? 0))
-  ) * 1.08;
+  const maxBar =
+    Math.max(
+      1,
+      ...visibles.map((f) => (f.interes ?? 0) + Math.max(0, f.abono ?? 0) + Math.max(0, f.extra ?? 0))
+    ) * 1.1;
 
   const yOf = (v: number) => pad.top + ((maxBar - v) / maxBar) * plotH;
   const baseY = yOf(0);
   const barSlot = plotW / visibles.length;
-  const barW = Math.max(3, Math.min(28, barSlot * 0.72));
+  const barW = Math.max(4, Math.min(28, barSlot * 0.72));
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((r) => maxBar * r);
-  const active = hoverIdx !== null ? visibles[hoverIdx] : null;
+
+  const filaHover = hoverPeriodo !== null ? visibles.find((f) => f.periodo === hoverPeriodo) ?? null : null;
+  const filaSel = selectedPeriodo !== null ? filas.find((f) => f.periodo === selectedPeriodo) ?? null : null;
+  const active = filaHover ?? (filaSel && filaSel.periodo > 0 ? filaSel : null);
 
   return (
     <div className="chart-grid-bg p-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full select-none" onMouseLeave={() => setHoverIdx(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full select-none" onMouseLeave={() => setHoverPeriodo(null)}>
         {yTicks.map((val, idx) => (
           <g key={idx}>
             <line
@@ -271,26 +356,64 @@ function GraficaBarrasCuota({ filas }: { filas: FilaPrestamo[] }) {
           const yAbo = baseY - hAbo;
           const yInt = yAbo - hInt;
           const yExt = yInt - hExt;
-          const op = hoverIdx === null || hoverIdx === idx ? 1 : 0.45;
+          const esSel = f.periodo === selectedPeriodo;
+          const esHover = f.periodo === hoverPeriodo;
+          const hayFoco = hoverPeriodo !== null || selectedPeriodo !== null;
+          const op = !hayFoco || esSel || esHover ? 1 : 0.35;
 
           return (
             <g
               key={f.periodo}
               opacity={op}
               className="cursor-pointer"
-              onMouseEnter={() => setHoverIdx(idx)}
+              onMouseEnter={() => setHoverPeriodo(f.periodo)}
+              onClick={() => onSelectPeriodo(esSel ? null : f.periodo)}
             >
+              {esSel && (
+                <g>
+                  <rect
+                    x={x - 3}
+                    y={pad.top - 2}
+                    width={barW + 6}
+                    height={plotH + 4}
+                    fill="#1d4ed8"
+                    fillOpacity="0.1"
+                    stroke="#1d4ed8"
+                    strokeWidth="1.5"
+                  />
+                  <rect
+                    x={Math.max(pad.left, Math.min(W - pad.right - 34, x + barW / 2 - 17))}
+                    y={4}
+                    width={34}
+                    height={17}
+                    fill="#1d4ed8"
+                  />
+                  <text
+                    x={Math.max(pad.left + 17, Math.min(W - pad.right - 17, x + barW / 2))}
+                    y={16}
+                    textAnchor="middle"
+                    className="fill-white font-mono-num text-[10px] font-semibold"
+                  >
+                    P{f.periodo}
+                  </text>
+                </g>
+              )}
               <rect x={x} y={yAbo} width={barW} height={Math.max(0, hAbo)} fill="#0d5c46" className="svg-smooth" />
               <rect x={x} y={yInt} width={barW} height={Math.max(0, hInt)} fill="#b45309" className="svg-smooth" />
               {hExt > 0.5 && (
                 <rect x={x} y={yExt} width={barW} height={hExt} fill="#1d4ed8" className="svg-smooth" />
               )}
-              {(visibles.length <= 16 || idx % Math.ceil(visibles.length / 10) === 0 || idx === visibles.length - 1) && (
+              {(esSel ||
+                visibles.length <= 16 ||
+                idx % Math.ceil(visibles.length / 10) === 0 ||
+                idx === visibles.length - 1) && (
                 <text
                   x={x + barW / 2}
                   y={H - 10}
                   textAnchor="middle"
-                  className="fill-[#5c584f] font-mono-num text-[9px]"
+                  className={`font-mono-num text-[9px] ${
+                    esSel ? 'fill-[#1d4ed8] font-bold' : 'fill-[#5c584f]'
+                  }`}
                 >
                   {f.periodo}
                 </text>
@@ -300,10 +423,19 @@ function GraficaBarrasCuota({ filas }: { filas: FilaPrestamo[] }) {
         })}
       </svg>
 
+      {selectedPeriodo === 0 && !filaHover && (
+        <div className="mt-1 border-t border-[var(--line)] bg-white px-3 py-2 text-xs text-[var(--ink-muted)]">
+          El periodo 0 corresponde al desembolso inicial (sin cuota pagada). Cambie a «Curva de
+          saldo» para ubicar el periodo 0.
+        </div>
+      )}
+
       {active && (
         <div className="mt-1 grid grid-cols-2 gap-2 border-t border-[var(--line)] bg-white px-3 py-2 text-xs sm:grid-cols-4">
           <div>
-            <span className="block text-[10px] uppercase text-[var(--ink-faint)]">Periodo {active.periodo}</span>
+            <span className="block text-[10px] uppercase text-[var(--ink-faint)]">
+              Periodo {active.periodo} {filaHover ? '(cursor)' : '(seleccionado)'}
+            </span>
             <span className="font-mono-num font-semibold">Cuota: {fmtDinero(active.cuota ?? 0)}</span>
           </div>
           <div>
@@ -330,13 +462,21 @@ function GraficaBarrasCuota({ filas }: { filas: FilaPrestamo[] }) {
   );
 }
 
-function GraficaCuenta({ filas }: { filas: FilaCuenta[] }) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+function GraficaCuenta({
+  filas,
+  selectedPeriodo,
+  onSelectPeriodo,
+}: {
+  filas: FilaCuenta[];
+  selectedPeriodo: number | null;
+  onSelectPeriodo: (periodo: number | null) => void;
+}) {
+  const [hoverPeriodo, setHoverPeriodo] = useState<number | null>(null);
   if (filas.length < 2) return null;
 
   const W = 660;
-  const H = 250;
-  const pad = { top: 22, right: 24, bottom: 34, left: 66 };
+  const H = 260;
+  const pad = { top: 28, right: 24, bottom: 34, left: 66 };
   const plotW = W - pad.left - pad.right;
   const plotH = H - pad.top - pad.bottom;
 
@@ -353,20 +493,28 @@ function GraficaCuenta({ filas }: { filas: FilaCuenta[] }) {
 
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((r) => maxY * r);
   const xTicks = [0, 0.25, 0.5, 0.75, 1].map((r) => Math.round(maxP * r));
-  const active = hoverIdx !== null ? filas[hoverIdx] : null;
+
+  const filaSel = selectedPeriodo !== null ? filas.find((f) => f.periodo === selectedPeriodo) ?? null : null;
+  const filaHover = hoverPeriodo !== null ? filas.find((f) => f.periodo === hoverPeriodo) ?? null : null;
+  const active = filaHover ?? filaSel;
+
+  const resolverPeriodo = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * W;
+    const p = Math.max(0, Math.min(maxP, Math.round(((relX - pad.left) / plotW) * maxP)));
+    return filas.some((f) => f.periodo === p) ? p : null;
+  };
 
   return (
     <div className="chart-grid-bg p-2">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="h-auto w-full select-none"
-        onMouseLeave={() => setHoverIdx(null)}
-        onMouseMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const relX = ((e.clientX - rect.left) / rect.width) * W;
-          const p = Math.round(((relX - pad.left) / plotW) * maxP);
-          const idx = filas.findIndex((f) => f.periodo === p);
-          if (idx >= 0) setHoverIdx(idx);
+        className="h-auto w-full cursor-crosshair select-none"
+        onMouseLeave={() => setHoverPeriodo(null)}
+        onMouseMove={(e) => setHoverPeriodo(resolverPeriodo(e))}
+        onClick={(e) => {
+          const p = resolverPeriodo(e);
+          if (p !== null) onSelectPeriodo(selectedPeriodo === p ? null : p);
         }}
       >
         {yTicks.map((val, idx) => (
@@ -401,10 +549,47 @@ function GraficaCuenta({ filas }: { filas: FilaCuenta[] }) {
           className="svg-draw-line"
         />
 
-        {active && (
+        {filaSel && (
+          <g className="svg-smooth">
+            <line
+              x1={xOf(filaSel.periodo)}
+              x2={xOf(filaSel.periodo)}
+              y1={pad.top - 4}
+              y2={yOf(0)}
+              stroke="#1d4ed8"
+              strokeWidth="2"
+            />
+            <line
+              x1={pad.left}
+              x2={xOf(filaSel.periodo)}
+              y1={yOf(filaSel.saldoFinal)}
+              y2={yOf(filaSel.saldoFinal)}
+              stroke="#1d4ed8"
+              strokeWidth="1.2"
+              strokeDasharray="4 3"
+            />
+            <circle cx={xOf(filaSel.periodo)} cy={yOf(filaSel.saldoFinal)} r="9" fill="#1d4ed8" fillOpacity="0.18" />
+            <circle cx={xOf(filaSel.periodo)} cy={yOf(filaSel.saldoFinal)} r="5.5" fill="#1d4ed8" stroke="#fff" strokeWidth="2" />
+            {(() => {
+              const cx = xOf(filaSel.periodo);
+              const boxW = 92;
+              const bx = Math.max(pad.left, Math.min(W - pad.right - boxW, cx - boxW / 2));
+              return (
+                <g>
+                  <rect x={bx} y={4} width={boxW} height={18} fill="#1d4ed8" />
+                  <text x={bx + boxW / 2} y={16} textAnchor="middle" className="fill-white font-mono-num text-[10px] font-semibold">
+                    P{filaSel.periodo} · {fmtDineroCorto(filaSel.saldoFinal)}
+                  </text>
+                </g>
+              );
+            })()}
+          </g>
+        )}
+
+        {filaHover && filaHover.periodo !== selectedPeriodo && (
           <g>
-            <line x1={xOf(active.periodo)} x2={xOf(active.periodo)} y1={pad.top} y2={yOf(0)} stroke="#171614" strokeWidth="1" />
-            <circle cx={xOf(active.periodo)} cy={yOf(active.saldoFinal)} r="5" fill="#0d5c46" stroke="#fff" strokeWidth="2" />
+            <line x1={xOf(filaHover.periodo)} x2={xOf(filaHover.periodo)} y1={pad.top} y2={yOf(0)} stroke="#171614" strokeWidth="1" />
+            <circle cx={xOf(filaHover.periodo)} cy={yOf(filaHover.saldoFinal)} r="4.5" fill="#0d5c46" stroke="#fff" strokeWidth="2" />
           </g>
         )}
       </svg>
@@ -412,8 +597,12 @@ function GraficaCuenta({ filas }: { filas: FilaCuenta[] }) {
       {active && (
         <div className="mt-1 grid grid-cols-2 gap-2 border-t border-[var(--line)] bg-white px-3 py-2 text-xs sm:grid-cols-4">
           <div>
-            <span className="block text-[10px] uppercase text-[var(--ink-faint)]">Periodo</span>
-            <span className="font-mono-num font-semibold">{active.periodo}</span>
+            <span className="block text-[10px] uppercase text-[var(--ink-faint)]">
+              Periodo {filaHover ? '(cursor)' : '(seleccionado)'}
+            </span>
+            <span className="font-mono-num font-semibold text-[var(--cobalt)]">
+              Periodo {active.periodo}
+            </span>
           </div>
           <div>
             <span className="block text-[10px] uppercase text-[var(--ink-faint)]">Interés ganado</span>
@@ -441,25 +630,24 @@ function GraficaCuenta({ filas }: { filas: FilaCuenta[] }) {
 
 export function AmortizacionTab({ tasaTransferida }: Props) {
   const [tipoTabla, setTipoTabla] = useState<'prestamo' | 'cuenta'>('prestamo');
-  const [vpStr, setVpStr] = useState('1.000.000');
-  const [iStr, setIStr] = useState('2');
-  const [nStr, setNStr] = useState('12');
-  const [depStr, setDepStr] = useState('0');
+  const [vpStr, setVpStr] = useState('');
+  const [iStr, setIStr] = useState('');
+  const [nStr, setNStr] = useState('');
+  const [depStr, setDepStr] = useState('');
   const [modoPrestamo, setModoPrestamo] = useState<ModoPrestamo>('cuota');
 
-  // Movimientos extraordinarios: modo lista visual o texto rápido
   const [modoMov, setModoMov] = useState<'lista' | 'texto'>('lista');
   const [movItems, setMovItems] = useState<MovimientoExtraItem[]>([]);
   const [movTexto, setMovTexto] = useState('');
 
-  // Inputs para agregar movimiento estructurado
-  const [nuevoPer, setNuevoPer] = useState('6');
+  const [nuevoPer, setNuevoPer] = useState('');
   const [nuevoSigno, setNuevoSigno] = useState<1 | -1>(1);
   const [nuevoMonto, setNuevoMonto] = useState('');
   const [errorMov, setErrorMov] = useState<string | null>(null);
 
-  // Vista de gráfica en modo préstamo
   const [graficaVista, setGraficaVista] = useState<'saldo' | 'barras'>('saldo');
+  const [selectedPeriodo, setSelectedPeriodo] = useState<number | null>(null);
+  const chartSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (tasaTransferida) {
@@ -480,6 +668,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
           monto: nuevoSigno * montoAbs,
         },
       ]);
+      setNuevoPer('');
       setNuevoMonto('');
       setErrorMov(null);
     } catch (e) {
@@ -490,8 +679,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
   const cambiarModoMov = (nuevo: 'lista' | 'texto') => {
     if (nuevo === modoMov) return;
     if (nuevo === 'texto') {
-      const lineas = movItems.map((m) => `${m.periodo}: ${m.monto}`).join('\n');
-      setMovTexto(lineas);
+      setMovTexto(movItems.map((m) => `${m.periodo}: ${m.monto}`).join('\n'));
     } else {
       try {
         const mapa = parsearMovimientosTexto(movTexto);
@@ -500,39 +688,63 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
           .map(([p, m], idx) => ({ id: `imp-${idx}-${p}`, periodo: Number(p), monto: m }));
         setMovItems(items);
       } catch {
-        // Si el texto tiene un error, mantenemos los items anteriores
+        // Mantiene lista actual si hay un error de sintaxis
       }
     }
     setModoMov(nuevo);
   };
 
   const calculo = useMemo(() => {
+    if (!vpStr.trim() || !iStr.trim() || !nStr.trim()) {
+      return { estado: 'vacio' as const };
+    }
+
     try {
-      const vp = parsearNumero(vpStr, tipoTabla === 'prestamo' ? 'Monto del préstamo VP' : 'Saldo inicial', {
-        esMonto: true,
-      });
+      const vp = parsearNumero(
+        vpStr,
+        tipoTabla === 'prestamo' ? 'Monto del préstamo VP' : 'Saldo inicial',
+        { esMonto: true }
+      );
       const i = parsearTasa(iStr, 'Tasa periódica i');
       const n = parsearEnteroPositivo(nStr, 'Número de periodos n');
-      const movs = modoMov === 'lista' ? agruparMovimientos(movItems) : parsearMovimientosTexto(movTexto);
+      const movs =
+        modoMov === 'lista' ? agruparMovimientos(movItems) : parsearMovimientosTexto(movTexto);
 
       if (tipoTabla === 'prestamo') {
         const res = tablaPrestamo(vp, i, n, movs, modoPrestamo);
-        return { ok: true as const, tipo: 'prestamo' as const, data: res, hayExtras: Object.keys(movs).length > 0 };
+        return {
+          estado: 'ok' as const,
+          tipo: 'prestamo' as const,
+          data: res,
+          hayExtras: Object.keys(movs).length > 0,
+        };
       }
 
       const dep = depStr.trim() ? parsearNumero(depStr, 'Depósito fijo', { esMonto: true }) : 0;
       const res = tablaCuenta(vp, i, n, movs, dep);
-      return { ok: true as const, tipo: 'cuenta' as const, data: res, hayExtras: Object.keys(movs).length > 0 };
+      return {
+        estado: 'ok' as const,
+        tipo: 'cuenta' as const,
+        data: res,
+        hayExtras: Object.keys(movs).length > 0,
+      };
     } catch (e) {
       return {
-        ok: false as const,
+        estado: 'error' as const,
         error: e instanceof ErrorFinanciero ? e.message : 'Revise los datos ingresados.',
       };
     }
   }, [tipoTabla, vpStr, iStr, nStr, depStr, modoPrestamo, modoMov, movItems, movTexto]);
 
+  // Limpia selección si el periodo seleccionado dejó de existir al cambiar n
+  useEffect(() => {
+    if (selectedPeriodo === null || calculo.estado !== 'ok') return;
+    const existe = calculo.data.filas.some((f) => f.periodo === selectedPeriodo);
+    if (!existe) setSelectedPeriodo(null);
+  }, [calculo, selectedPeriodo]);
+
   const exportar = (formato: 'csv' | 'xlsx') => {
-    if (!calculo.ok) return;
+    if (calculo.estado !== 'ok') return;
     if (calculo.tipo === 'prestamo') {
       const enc = [
         'Periodo',
@@ -568,93 +780,49 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
     }
   };
 
+  const seleccionarFila = (periodo: number) => {
+    setSelectedPeriodo((prev) => (prev === periodo ? null : periodo));
+  };
+
   return (
     <div className="animate-panel space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
-        <div>
-          <p className="font-mono-num text-[11px] uppercase tracking-[0.12em] text-[var(--emerald)]">
-            Módulo 04 · Sistema Francés y Control de Saldos
-          </p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--ink)]">
-            Tabla de amortización y cuenta
-          </h2>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ink-faint)]">
-            <Sparkles className="h-3.5 w-3.5" /> Casos rápidos:
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setTipoTabla('prestamo');
-              setVpStr('1.000.000');
-              setIStr('2');
-              setNStr('12');
-              setModoPrestamo('cuota');
-              setModoMov('lista');
-              setMovItems([]);
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            $1M · 2 % · 12 m
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTipoTabla('prestamo');
-              setVpStr('134.000.000');
-              setIStr('1,874209');
-              setNStr('24');
-              setModoPrestamo('plazo');
-              setModoMov('lista');
-              setMovItems([{ id: 'ex-h7', periodo: 8, monto: 15_000_000 }]);
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            Excel Hoja7 ($134M + abono mes 8)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTipoTabla('cuenta');
-              setVpStr('2.000.000');
-              setIStr('1,2');
-              setNStr('12');
-              setDepStr('250.000');
-              setModoMov('lista');
-              setMovItems([
-                { id: 'c1', periodo: 4, monto: 500_000 },
-                { id: 'c2', periodo: 9, monto: -800_000 },
-              ]);
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            Cuenta ahorros + retiro
-          </button>
-        </div>
+      <div className="border-b border-[var(--line)] pb-4">
+        <p className="font-mono-num text-[11px] uppercase tracking-[0.12em] text-[var(--emerald)]">
+          Módulo 04 · Sistema Francés y Control de Saldos
+        </p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--ink)]">
+          Tabla de amortización y cuenta
+        </h2>
       </div>
 
-      {/* Controles principales */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Columna de parámetros */}
         <div className="space-y-4 lg:col-span-4">
           <div className="space-y-4 border border-[var(--line)] bg-white p-4">
             <div className="grid grid-cols-2 border border-[var(--line-strong)]">
               <button
                 type="button"
-                onClick={() => setTipoTabla('prestamo')}
+                onClick={() => {
+                  setTipoTabla('prestamo');
+                  setSelectedPeriodo(null);
+                }}
                 className={`cursor-pointer py-2 text-xs font-semibold transition-colors ${
-                  tipoTabla === 'prestamo' ? 'bg-[var(--ink)] text-white' : 'bg-[var(--paper)] text-[var(--ink-muted)]'
+                  tipoTabla === 'prestamo'
+                    ? 'bg-[var(--ink)] text-white'
+                    : 'bg-[var(--paper)] text-[var(--ink-muted)]'
                 }`}
               >
                 Préstamo (Francés)
               </button>
               <button
                 type="button"
-                onClick={() => setTipoTabla('cuenta')}
+                onClick={() => {
+                  setTipoTabla('cuenta');
+                  setSelectedPeriodo(null);
+                }}
                 className={`cursor-pointer py-2 text-xs font-semibold transition-colors ${
-                  tipoTabla === 'cuenta' ? 'bg-[var(--ink)] text-white' : 'bg-[var(--paper)] text-[var(--ink-muted)]'
+                  tipoTabla === 'cuenta'
+                    ? 'bg-[var(--ink)] text-white'
+                    : 'bg-[var(--paper)] text-[var(--ink-muted)]'
                 }`}
               >
                 Cuenta (Dep./Ret.)
@@ -667,10 +835,24 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
               prefix="$"
               value={vpStr}
               onChange={setVpStr}
+              placeholder="Ej. 1.000.000"
             />
             <div className="grid grid-cols-2 gap-3">
-              <FieldInput id="am-i" label="Tasa periódica i" suffix="%" value={iStr} onChange={setIStr} />
-              <FieldInput id="am-n" label="Periodos (n)" value={nStr} onChange={setNStr} />
+              <FieldInput
+                id="am-i"
+                label="Tasa periódica i"
+                suffix="%"
+                value={iStr}
+                onChange={setIStr}
+                placeholder="Ej. 2"
+              />
+              <FieldInput
+                id="am-n"
+                label="Periodos (n)"
+                value={nStr}
+                onChange={setNStr}
+                placeholder="Ej. 12"
+              />
             </div>
 
             {tipoTabla === 'prestamo' ? (
@@ -706,16 +888,34 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
             ) : (
               <FieldInput
                 id="am-dep"
-                label="Depósito fijo por periodo"
+                label="Depósito fijo por periodo (opcional)"
                 prefix="$"
                 value={depStr}
                 onChange={setDepStr}
+                placeholder="0"
                 helper="Se suma en cada periodo 1..n junto con los movimientos extra."
               />
             )}
+
+            <div className="flex justify-end border-t border-[var(--line)] pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setVpStr('');
+                  setIStr('');
+                  setNStr('');
+                  setDepStr('');
+                  setMovItems([]);
+                  setMovTexto('');
+                  setSelectedPeriodo(null);
+                }}
+                className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
+              >
+                <Eraser className="h-3.5 w-3.5" /> Limpiar todo
+              </button>
+            </div>
           </div>
 
-          {/* Movimientos extraordinarios */}
           <div className="space-y-3 border border-[var(--line)] bg-white p-4">
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
@@ -726,7 +926,9 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                   type="button"
                   onClick={() => cambiarModoMov('lista')}
                   className={`cursor-pointer px-2 py-1 ${
-                    modoMov === 'lista' ? 'bg-[var(--ink)] text-white' : 'bg-[var(--paper)] text-[var(--ink-muted)]'
+                    modoMov === 'lista'
+                      ? 'bg-[var(--ink)] text-white'
+                      : 'bg-[var(--paper)] text-[var(--ink-muted)]'
                   }`}
                 >
                   Lista
@@ -735,7 +937,9 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                   type="button"
                   onClick={() => cambiarModoMov('texto')}
                   className={`cursor-pointer px-2 py-1 ${
-                    modoMov === 'texto' ? 'bg-[var(--ink)] text-white' : 'bg-[var(--paper)] text-[var(--ink-muted)]'
+                    modoMov === 'texto'
+                      ? 'bg-[var(--ink)] text-white'
+                      : 'bg-[var(--paper)] text-[var(--ink-muted)]'
                   }`}
                 >
                   Texto
@@ -802,7 +1006,13 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                           <span className="border border-[var(--line)] bg-[var(--paper)] px-1.5 py-0.5 text-[10px] font-semibold">
                             P{m.periodo}
                           </span>
-                          <span className={m.monto >= 0 ? 'font-semibold text-[var(--emerald)]' : 'font-semibold text-[var(--crimson)]'}>
+                          <span
+                            className={
+                              m.monto >= 0
+                                ? 'font-semibold text-[var(--emerald)]'
+                                : 'font-semibold text-[var(--crimson)]'
+                            }
+                          >
                             {m.monto >= 0 ? '+' : ''}
                             {fmtDinero(m.monto)}
                           </span>
@@ -839,16 +1049,25 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
           </div>
         </div>
 
-        {/* Columna derecha: KPIs + Gráficas animadas */}
-        <div className="space-y-4 lg:col-span-8">
-          {!calculo.ok ? (
+        <div ref={chartSectionRef} className="space-y-4 lg:col-span-8">
+          {calculo.estado === 'vacio' ? (
+            <div className="chart-grid-bg flex min-h-[380px] flex-col items-center justify-center border border-[var(--line)] p-8 text-center">
+              <p className="font-editorial text-lg font-semibold text-[var(--ink)]">
+                Ingrese los datos para generar la tabla y sus gráficas
+              </p>
+              <p className="mt-1.5 max-w-md text-xs text-[var(--ink-muted)]">
+                Complete el {tipoTabla === 'prestamo' ? 'monto del préstamo' : 'saldo inicial'}, la
+                tasa periódica i (%) y el número de periodos n. Después podrá hacer clic en
+                cualquier fila de la tabla para ubicar ese periodo directamente en la gráfica.
+              </p>
+            </div>
+          ) : calculo.estado === 'error' ? (
             <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-5 text-sm text-[var(--crimson)]">
               <strong className="block font-semibold">No se pudo generar la tabla</strong>
               <span className="mt-1 block">{calculo.error}</span>
             </div>
           ) : calculo.tipo === 'prestamo' ? (
             <>
-              {/* KPIs de Préstamo */}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <KpiTile
                   label="Cuota fija inicial R"
@@ -907,10 +1126,9 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                 </div>
               )}
 
-              {/* Selector de gráfica */}
               <div className="border border-[var(--line)] bg-white">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-2.5">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setGraficaVista('saldo')}
@@ -933,6 +1151,17 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                     >
                       <BarChart3 className="h-3.5 w-3.5" /> Composición por cuota
                     </button>
+
+                    {selectedPeriodo !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPeriodo(null)}
+                        className="inline-flex cursor-pointer items-center gap-1 border border-[var(--cobalt)] bg-[var(--cobalt-soft)] px-2 py-1 font-mono-num text-[11px] font-semibold text-[var(--cobalt)] hover:bg-[var(--cobalt)] hover:text-white"
+                      >
+                        Marcado: P{selectedPeriodo}
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--ink-muted)]">
@@ -968,15 +1197,20 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                     filas={calculo.data.filas}
                     filasBase={calculo.data.filasBase}
                     hayExtras={calculo.hayExtras}
+                    selectedPeriodo={selectedPeriodo}
+                    onSelectPeriodo={setSelectedPeriodo}
                   />
                 ) : (
-                  <GraficaBarrasCuota filas={calculo.data.filas} />
+                  <GraficaBarrasCuota
+                    filas={calculo.data.filas}
+                    selectedPeriodo={selectedPeriodo}
+                    onSelectPeriodo={setSelectedPeriodo}
+                  />
                 )}
               </div>
             </>
           ) : (
             <>
-              {/* KPIs Cuenta */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <KpiTile label="Saldo final" value={calculo.data.saldoFinal} formatter={fmtDinero} tone="emerald" large />
                 <KpiTile label="Total intereses ganados" value={calculo.data.totalIntereses} formatter={fmtDinero} tone="ochre" />
@@ -984,20 +1218,33 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
               </div>
 
               <div className="border border-[var(--line)] bg-white">
-                <div className="border-b border-[var(--line)] px-4 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-2.5">
                   <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
                     Evolución del saldo de la cuenta
                   </h3>
+                  {selectedPeriodo !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPeriodo(null)}
+                      className="inline-flex cursor-pointer items-center gap-1 border border-[var(--cobalt)] bg-[var(--cobalt-soft)] px-2 py-1 font-mono-num text-[11px] font-semibold text-[var(--cobalt)] hover:bg-[var(--cobalt)] hover:text-white"
+                    >
+                      Marcado: P{selectedPeriodo}
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
-                <GraficaCuenta filas={calculo.data.filas} />
+                <GraficaCuenta
+                  filas={calculo.data.filas}
+                  selectedPeriodo={selectedPeriodo}
+                  onSelectPeriodo={setSelectedPeriodo}
+                />
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* Tabla completa + Exportación */}
-      {calculo.ok && (
+      {calculo.estado === 'ok' && (
         <div className="border border-[var(--line)] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
             <div>
@@ -1007,7 +1254,18 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                   : `Extracto de cuenta — ${calculo.data.filas.length - 1} periodos`}
               </h3>
               <p className="text-[11px] text-[var(--ink-faint)]">
-                Las filas resaltadas indican movimientos extraordinarios aplicados en ese periodo.
+                Haga clic en cualquier fila para señalar ese periodo en la gráfica superior.
+                {selectedPeriodo !== null && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      chartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+                    className="ml-2 cursor-pointer font-semibold text-[var(--cobalt)] underline underline-offset-2"
+                  >
+                    Ver P{selectedPeriodo} en gráfica ↑
+                  </button>
+                )}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -1045,18 +1303,26 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                 <tbody className="divide-y divide-[var(--line)] font-mono-num">
                   {calculo.data.filas.map((f) => {
                     const tieneExtra = f.extra !== null && Math.abs(f.extra) > 0.01;
+                    const esSel = selectedPeriodo === f.periodo;
                     return (
                       <tr
                         key={f.periodo}
-                        className={
-                          tieneExtra
-                            ? (f.extra ?? 0) > 0
-                              ? 'bg-[var(--cobalt-soft)]/55'
-                              : 'bg-[var(--crimson-soft)]/55'
-                            : 'hover:bg-[var(--paper)]'
-                        }
+                        onClick={() => seleccionarFila(f.periodo)}
+                        className={`cursor-pointer transition-colors ${
+                          esSel
+                            ? 'bg-[var(--cobalt-soft)] shadow-[inset_3px_0_0_0_var(--cobalt)]'
+                            : tieneExtra
+                              ? (f.extra ?? 0) > 0
+                                ? 'bg-[var(--emerald-soft)]/50 hover:bg-[var(--cobalt-soft)]/40'
+                                : 'bg-[var(--crimson-soft)]/50 hover:bg-[var(--cobalt-soft)]/40'
+                              : 'hover:bg-[var(--paper)]'
+                        }`}
                       >
-                        <td className="px-3 py-2 text-center font-semibold">{f.periodo}</td>
+                        <td className="px-3 py-2 text-center font-semibold">
+                          <span className={esSel ? 'text-[var(--cobalt)] font-bold' : ''}>
+                            {f.periodo}
+                          </span>
+                        </td>
                         <td className="px-3 py-2 text-right text-[var(--ink-muted)]">
                           {f.saldoInicial === null ? '—' : fmtDinero(f.saldoInicial)}
                         </td>
@@ -1102,9 +1368,22 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                 <tbody className="divide-y divide-[var(--line)] font-mono-num">
                   {calculo.data.filas.map((f) => {
                     const mov = f.movimiento ?? 0;
+                    const esSel = selectedPeriodo === f.periodo;
                     return (
-                      <tr key={f.periodo} className="hover:bg-[var(--paper)]">
-                        <td className="px-3 py-2 text-center font-semibold">{f.periodo}</td>
+                      <tr
+                        key={f.periodo}
+                        onClick={() => seleccionarFila(f.periodo)}
+                        className={`cursor-pointer transition-colors ${
+                          esSel
+                            ? 'bg-[var(--cobalt-soft)] shadow-[inset_3px_0_0_0_var(--cobalt)]'
+                            : 'hover:bg-[var(--paper)]'
+                        }`}
+                      >
+                        <td className="px-3 py-2 text-center font-semibold">
+                          <span className={esSel ? 'text-[var(--cobalt)] font-bold' : ''}>
+                            {f.periodo}
+                          </span>
+                        </td>
                         <td className="px-3 py-2 text-right text-[var(--ink-muted)]">
                           {f.saldoInicial === null ? '—' : fmtDinero(f.saldoInicial)}
                         </td>

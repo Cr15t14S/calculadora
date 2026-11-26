@@ -135,7 +135,7 @@ export function CalculadoraApp() {
       {/* Pie discreto */}
       <footer className="mt-10 border-t border-[var(--line)] bg-white/70">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-[11px] text-[var(--ink-faint)] sm:px-6 lg:px-8">
-          <span>Calculadora Financiera · Ingeniería Económica</span>
+          <span className="font-medium text-[var(--ink-muted)]">Cristian Salgado - Valentina Murcia</span>
           <span className="font-mono-num">
             Cálculos en doble precisión IEEE-754 · Exportación CSV (ES) y XLSX
           </span>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowRight, Send, Sparkles } from 'lucide-react';
+import { ArrowRight, Eraser, Send } from 'lucide-react';
 import {
   ErrorFinanciero,
   FRECUENCIAS_TASA,
@@ -29,33 +29,34 @@ type SubModo = 'nominal' | 'equivalencia' | 'ant_venc';
 export function ConversionTasasTab({ onEnviarTasa }: Props) {
   const [modo, setModo] = useState<SubModo>('nominal');
 
-  // a) Nominal -> periódica -> EA
-  const [nomJ, setNomJ] = useState('24');
-  const [nomM, setNomM] = useState('12');
+  const [nomJ, setNomJ] = useState('');
+  const [nomM, setNomM] = useState('');
   const [nomAnt, setNomAnt] = useState(false);
 
-  // b) Equivalencias
-  const [eqI, setEqI] = useState('24,96');
-  const [eqNc, setEqNc] = useState('1');
-  const [eqNb, setEqNb] = useState('12');
+  const [eqI, setEqI] = useState('');
+  const [eqNc, setEqNc] = useState('');
+  const [eqNb, setEqNb] = useState('');
 
-  // c) Anticipada <-> vencida
-  const [avTasa, setAvTasa] = useState('2');
+  const [avTasa, setAvTasa] = useState('');
   const [avDir, setAvDir] = useState<'a2v' | 'v2a'>('a2v');
-  const [avM, setAvM] = useState('12');
+  const [avM, setAvM] = useState('');
 
   const resNominal = useMemo(() => {
+    if (!nomJ.trim() || !nomM.trim()) return { estado: 'vacio' as const };
     try {
       const j = parsearTasa(nomJ, 'Tasa nominal j');
       const m = parsearNumero(nomM, 'Capitalizaciones m');
-      const r = nominalAPeriodica(j, m, nomAnt);
-      return { ok: true as const, data: r };
+      return { estado: 'ok' as const, data: nominalAPeriodica(j, m, nomAnt) };
     } catch (e) {
-      return { ok: false as const, error: e instanceof ErrorFinanciero ? e.message : 'Dato inválido.' };
+      return {
+        estado: 'error' as const,
+        error: e instanceof ErrorFinanciero ? e.message : 'Dato inválido.',
+      };
     }
   }, [nomJ, nomM, nomAnt]);
 
   const resEquiv = useMemo(() => {
+    if (!eqI.trim() || !eqNc.trim() || !eqNb.trim()) return { estado: 'vacio' as const };
     try {
       const i = parsearTasa(eqI, 'Tasa conocida');
       const nc = parsearNumero(eqNc, 'Periodos/año conocida');
@@ -63,52 +64,61 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
       const buscada = tasaEquivalente(i, nc, nb);
       const ea = tasaEquivalente(i, nc, 1);
       return {
-        ok: true as const,
+        estado: 'ok' as const,
         data: { i, nc, nb, buscada, nominalEquiv: buscada * nb, ea },
       };
     } catch (e) {
-      return { ok: false as const, error: e instanceof ErrorFinanciero ? e.message : 'Dato inválido.' };
+      return {
+        estado: 'error' as const,
+        error: e instanceof ErrorFinanciero ? e.message : 'Dato inválido.',
+      };
     }
   }, [eqI, eqNc, eqNb]);
 
   const resAV = useMemo(() => {
+    if (!avTasa.trim()) return { estado: 'vacio' as const };
     try {
       const t = parsearTasa(avTasa, 'Tasa periódica');
-      const m = parsearNumero(avM, 'Periodos/año');
       const resultado = avDir === 'a2v' ? anticipadaAVencida(t) : vencidaAAnticipada(t);
       const iv = avDir === 'a2v' ? resultado : t;
-      const ea = tasaEquivalente(iv, m, 1);
-      return { ok: true as const, data: { t, m, resultado, iv, ea } };
+      let m: number | null = null;
+      let ea: number | null = null;
+      if (avM.trim()) {
+        m = parsearNumero(avM, 'Periodos/año');
+        ea = tasaEquivalente(iv, m, 1);
+      }
+      return { estado: 'ok' as const, data: { t, m, resultado, iv, ea } };
     } catch (e) {
-      return { ok: false as const, error: e instanceof ErrorFinanciero ? e.message : 'Dato inválido.' };
+      return {
+        estado: 'error' as const,
+        error: e instanceof ErrorFinanciero ? e.message : 'Dato inválido.',
+      };
     }
   }, [avTasa, avDir, avM]);
 
-  // EA activa para alimentar la gráfica comparativa de escalera de tasas
   const eaActiva =
-    modo === 'nominal' && resNominal.ok
+    modo === 'nominal' && resNominal.estado === 'ok'
       ? resNominal.data.ea
-      : modo === 'equivalencia' && resEquiv.ok
+      : modo === 'equivalencia' && resEquiv.estado === 'ok'
         ? resEquiv.data.ea
-        : modo === 'ant_venc' && resAV.ok
+        : modo === 'ant_venc' && resAV.estado === 'ok'
           ? resAV.data.ea
           : null;
 
-  // Tasa periódica lista para enviar a otro módulo
   const tasaParaEnviar = useMemo(() => {
-    if (modo === 'nominal' && resNominal.ok) {
+    if (modo === 'nominal' && resNominal.estado === 'ok') {
       return {
         pct: (resNominal.data.iv * 100).toFixed(6).replace('.', ','),
         etiqueta: `${fmtPct(resNominal.data.iv, 4)} vencida`,
       };
     }
-    if (modo === 'equivalencia' && resEquiv.ok) {
+    if (modo === 'equivalencia' && resEquiv.estado === 'ok') {
       return {
         pct: (resEquiv.data.buscada * 100).toFixed(6).replace('.', ','),
         etiqueta: `${fmtPct(resEquiv.data.buscada, 4)} equivalente`,
       };
     }
-    if (modo === 'ant_venc' && resAV.ok) {
+    if (modo === 'ant_venc' && resAV.estado === 'ok') {
       return {
         pct: (resAV.data.iv * 100).toFixed(6).replace('.', ','),
         etiqueta: `${fmtPct(resAV.data.iv, 4)} vencida`,
@@ -128,70 +138,59 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
 
   const maxNominalBar = useMemo(() => {
     if (escalera.length === 0) return 0.3;
-    return Math.max(...escalera.map((f) => Math.max(f.nominalVencida, f.periodicaVencida)), eaActiva ?? 0, 0.01);
+    return Math.max(
+      ...escalera.map((f) => Math.max(f.nominalVencida, f.periodicaVencida)),
+      eaActiva ?? 0,
+      0.01
+    );
   }, [escalera, eaActiva]);
+
+  const limpiarModo = () => {
+    if (modo === 'nominal') {
+      setNomJ('');
+      setNomM('');
+      setNomAnt(false);
+    } else if (modo === 'equivalencia') {
+      setEqI('');
+      setEqNc('');
+      setEqNb('');
+    } else {
+      setAvTasa('');
+      setAvM('');
+    }
+  };
 
   return (
     <div className="animate-panel space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
-        <div>
-          <p className="font-mono-num text-[11px] uppercase tracking-[0.12em] text-[var(--emerald)]">
-            Módulo 02 · Equivalencias Financieras
-          </p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--ink)]">
-            Conversión de tasas de interés
-          </h2>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ink-faint)]">
-            <Sparkles className="h-3.5 w-3.5" /> Casos del curso:
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setModo('nominal');
-              setNomJ('40');
-              setNomM('4');
-              setNomAnt(false);
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            40 % CT → ET
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setModo('nominal');
-              setNomJ('24');
-              setNomM('12');
-              setNomAnt(true);
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            24 % NMA (Anticipada)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setModo('equivalencia');
-              setEqI('24,96');
-              setEqNc('1');
-              setEqNb('12');
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            24,96 % EA → EM
-          </button>
-        </div>
+      <div className="border-b border-[var(--line)] pb-4">
+        <p className="font-mono-num text-[11px] uppercase tracking-[0.12em] text-[var(--emerald)]">
+          Módulo 02 · Equivalencias Financieras
+        </p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--ink)]">
+          Conversión de tasas de interés
+        </h2>
       </div>
 
-      {/* Selector de operación */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {[
-          { id: 'nominal' as SubModo, num: 'A', titulo: 'Nominal → Periódica → EA', desc: 'j / m y capitalización anual (vencida o anticipada)' },
-          { id: 'equivalencia' as SubModo, num: 'B', titulo: 'Equivalencia entre tasas', desc: 'De una periodicidad efectiva a otra (ej. EA → EM)' },
-          { id: 'ant_venc' as SubModo, num: 'C', titulo: 'Anticipada ↔ Vencida', desc: 'Conversión directa para el mismo periodo' },
+          {
+            id: 'nominal' as SubModo,
+            num: 'A',
+            titulo: 'Nominal → Periódica → EA',
+            desc: 'j / m y capitalización anual (vencida o anticipada)',
+          },
+          {
+            id: 'equivalencia' as SubModo,
+            num: 'B',
+            titulo: 'Equivalencia entre tasas',
+            desc: 'De una periodicidad efectiva a otra (ej. EA → EM)',
+          },
+          {
+            id: 'ant_venc' as SubModo,
+            num: 'C',
+            titulo: 'Anticipada ↔ Vencida',
+            desc: 'Conversión directa para el mismo periodo',
+          },
         ].map((item) => {
           const active = modo === item.id;
           return (
@@ -224,7 +223,6 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Columna izquierda: Entradas + Resultado directo */}
         <div className="space-y-5 lg:col-span-5">
           {modo === 'nominal' && (
             <div className="space-y-4 border border-[var(--line)] bg-white p-5">
@@ -242,7 +240,7 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                 suffix="/año"
                 value={nomM}
                 onChange={setNomM}
-                placeholder="12"
+                placeholder="Ej. 12"
               />
               <div className="flex flex-wrap gap-1.5">
                 {FRECUENCIAS_TASA.filter((f) => [12, 4, 2, 6, 360].includes(f.m)).map((f) => (
@@ -267,8 +265,17 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                   onChange={(e) => setNomAnt(e.target.checked)}
                   className="h-4 w-4 accent-[var(--emerald)]"
                 />
-                La tasa nominal es ANTICIPADA (ej. 24 % NMA / NTA)
+                La tasa nominal es ANTICIPADA (ej. NMA / NTA)
               </label>
+              <div className="flex justify-end border-t border-[var(--line)] pt-2">
+                <button
+                  type="button"
+                  onClick={limpiarModo}
+                  className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
+                >
+                  <Eraser className="h-3.5 w-3.5" /> Limpiar
+                </button>
+              </div>
             </div>
           )}
 
@@ -288,19 +295,19 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                   label="Periodos/año conocida"
                   value={eqNc}
                   onChange={setEqNc}
-                  placeholder="1"
+                  placeholder="Ej. 1"
                 />
                 <FieldInput
                   id="te-nb"
                   label="Periodos/año buscada"
                   value={eqNb}
                   onChange={setEqNb}
-                  placeholder="12"
+                  placeholder="Ej. 12"
                 />
               </div>
               <div className="space-y-1.5 border-t border-[var(--line)] pt-3">
                 <span className="block text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-faint)]">
-                  Atajos frecuentes
+                  Frecuencias comunes
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
@@ -324,6 +331,15 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="flex justify-end border-t border-[var(--line)] pt-2">
+                <button
+                  type="button"
+                  onClick={limpiarModo}
+                  className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
+                >
+                  <Eraser className="h-3.5 w-3.5" /> Limpiar
+                </button>
               </div>
             </div>
           )}
@@ -364,15 +380,24 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
               </div>
               <FieldInput
                 id="tav-m"
-                label="Periodos por año (referencia EA)"
+                label="Periodos por año (opcional, para ver EA)"
                 value={avM}
                 onChange={setAvM}
-                helper="Solo se usa para proyectar la Efectiva Anual de referencia."
+                placeholder="Ej. 12"
+                helper="Si lo llena, proyecta la Efectiva Anual y el mapa comparativo."
               />
+              <div className="flex justify-end border-t border-[var(--line)] pt-2">
+                <button
+                  type="button"
+                  onClick={limpiarModo}
+                  className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
+                >
+                  <Eraser className="h-3.5 w-3.5" /> Limpiar
+                </button>
+              </div>
             </div>
           )}
 
-          {/* Enviar tasa a otros módulos */}
           {tasaParaEnviar && (
             <div className="border border-[var(--line)] bg-[var(--paper-alt)] p-4">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
@@ -400,10 +425,23 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
           )}
         </div>
 
-        {/* Columna derecha: Flujo animado + KPIs + Gráfica comparativa */}
         <div className="space-y-4 lg:col-span-7">
           {modo === 'nominal' &&
-            (resNominal.ok ? (
+            (resNominal.estado === 'vacio' ? (
+              <div className="chart-grid-bg flex min-h-[300px] flex-col items-center justify-center border border-[var(--line)] p-8 text-center">
+                <p className="font-editorial text-lg font-semibold text-[var(--ink)]">
+                  Ingrese la tasa nominal y su frecuencia
+                </p>
+                <p className="mt-1.5 max-w-sm text-xs text-[var(--ink-muted)]">
+                  Escriba j (%) y el número de capitalizaciones m por año para ver la ruta paso a
+                  paso y el mapa comparativo de tasas equivalentes.
+                </p>
+              </div>
+            ) : resNominal.estado === 'error' ? (
+              <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-4 text-sm text-[var(--crimson)]">
+                {resNominal.error}
+              </div>
+            ) : (
               <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <KpiTile
@@ -430,57 +468,82 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                   />
                 </div>
 
-                {/* Diagrama de cadena de conversión */}
                 <div className="border border-[var(--line)] bg-white p-4">
                   <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
                     Ruta de conversión paso a paso
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex-1 min-w-[115px] border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
+                    <div className="min-w-[115px] flex-1 border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
                       <span className="block text-[10px] uppercase text-[var(--ink-faint)]">Nominal j</span>
-                      <AnimatedNumber value={resNominal.data.j} formatter={(v) => fmtPct(v, 2)} className="text-sm font-semibold" />
+                      <AnimatedNumber
+                        value={resNominal.data.j}
+                        formatter={(v) => fmtPct(v, 2)}
+                        className="text-sm font-semibold"
+                      />
                     </div>
-                    <div className="flex flex-col items-center text-[10px] font-mono-num text-[var(--ink-faint)]">
+                    <div className="flex flex-col items-center font-mono-num text-[10px] text-[var(--ink-faint)]">
                       <span>÷ {fmtNum(resNominal.data.m, 0)}</span>
                       <ArrowRight className="h-4 w-4 text-[var(--ink-muted)]" />
                     </div>
-                    <div className="flex-1 min-w-[115px] border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
+                    <div className="min-w-[115px] flex-1 border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
                       <span className="block text-[10px] uppercase text-[var(--ink-faint)]">
                         {resNominal.data.anticipada ? 'Anticipada ia' : 'Periódica i'}
                       </span>
-                      <AnimatedNumber value={resNominal.data.ip} formatter={(v) => fmtPct(v, 4)} className="text-sm font-semibold" />
+                      <AnimatedNumber
+                        value={resNominal.data.ip}
+                        formatter={(v) => fmtPct(v, 4)}
+                        className="text-sm font-semibold"
+                      />
                     </div>
                     {resNominal.data.anticipada && (
                       <>
-                        <div className="flex flex-col items-center text-[10px] font-mono-num text-[var(--ochre)]">
+                        <div className="flex flex-col items-center font-mono-num text-[10px] text-[var(--ochre)]">
                           <span>÷(1-ia)</span>
                           <ArrowRight className="h-4 w-4 text-[var(--ochre)]" />
                         </div>
-                        <div className="flex-1 min-w-[115px] border border-[var(--cobalt)] bg-[var(--cobalt-soft)] px-3 py-2">
+                        <div className="min-w-[115px] flex-1 border border-[var(--cobalt)] bg-[var(--cobalt-soft)] px-3 py-2">
                           <span className="block text-[10px] uppercase text-[var(--cobalt)]">Vencida iv</span>
-                          <AnimatedNumber value={resNominal.data.iv} formatter={(v) => fmtPct(v, 4)} className="text-sm font-semibold text-[var(--cobalt)]" />
+                          <AnimatedNumber
+                            value={resNominal.data.iv}
+                            formatter={(v) => fmtPct(v, 4)}
+                            className="text-sm font-semibold text-[var(--cobalt)]"
+                          />
                         </div>
                       </>
                     )}
-                    <div className="flex flex-col items-center text-[10px] font-mono-num text-[var(--emerald)]">
+                    <div className="flex flex-col items-center font-mono-num text-[10px] text-[var(--emerald)]">
                       <span>(1+iv)^{fmtNum(resNominal.data.m, 0)}-1</span>
                       <ArrowRight className="h-4 w-4 text-[var(--emerald)]" />
                     </div>
-                    <div className="flex-1 min-w-[125px] border border-[var(--emerald)] bg-[var(--emerald-soft)] px-3 py-2">
+                    <div className="min-w-[125px] flex-1 border border-[var(--emerald)] bg-[var(--emerald-soft)] px-3 py-2">
                       <span className="block text-[10px] uppercase text-[var(--emerald)]">Efectiva EA</span>
-                      <AnimatedNumber value={resNominal.data.ea} formatter={(v) => fmtPct(v, 4)} className="text-sm font-semibold text-[var(--emerald)]" />
+                      <AnimatedNumber
+                        value={resNominal.data.ea}
+                        formatter={(v) => fmtPct(v, 4)}
+                        className="text-sm font-semibold text-[var(--emerald)]"
+                      />
                     </div>
                   </div>
                 </div>
               </>
-            ) : (
-              <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-4 text-sm text-[var(--crimson)]">
-                {resNominal.error}
-              </div>
             ))}
 
           {modo === 'equivalencia' &&
-            (resEquiv.ok ? (
+            (resEquiv.estado === 'vacio' ? (
+              <div className="chart-grid-bg flex min-h-[300px] flex-col items-center justify-center border border-[var(--line)] p-8 text-center">
+                <p className="font-editorial text-lg font-semibold text-[var(--ink)]">
+                  Ingrese la tasa conocida y las dos periodicidades
+                </p>
+                <p className="mt-1.5 max-w-sm text-xs text-[var(--ink-muted)]">
+                  Indique la tasa efectiva (%) y cuántos periodos por año corresponden a la tasa
+                  conocida y a la buscada.
+                </p>
+              </div>
+            ) : resEquiv.estado === 'error' ? (
+              <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-4 text-sm text-[var(--crimson)]">
+                {resEquiv.error}
+              </div>
+            ) : (
               <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <KpiTile
@@ -509,14 +572,23 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                   sustituida={`i = (1 + ${fmtNum(resEquiv.data.i, 6)})^(${fmtNum(resEquiv.data.nc, 2)} / ${fmtNum(resEquiv.data.nb, 2)}) - 1 = ${fmtPct(resEquiv.data.buscada, 4)}`}
                 />
               </>
-            ) : (
-              <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-4 text-sm text-[var(--crimson)]">
-                {resEquiv.error}
-              </div>
             ))}
 
           {modo === 'ant_venc' &&
-            (resAV.ok ? (
+            (resAV.estado === 'vacio' ? (
+              <div className="chart-grid-bg flex min-h-[300px] flex-col items-center justify-center border border-[var(--line)] p-8 text-center">
+                <p className="font-editorial text-lg font-semibold text-[var(--ink)]">
+                  Ingrese la tasa periódica a convertir
+                </p>
+                <p className="mt-1.5 max-w-sm text-xs text-[var(--ink-muted)]">
+                  Seleccione el sentido de conversión (anticipada ↔ vencida) y escriba el porcentaje.
+                </p>
+              </div>
+            ) : resAV.estado === 'error' ? (
+              <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-4 text-sm text-[var(--crimson)]">
+                {resAV.error}
+              </div>
+            ) : (
               <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <KpiTile
@@ -527,13 +599,19 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                     tone="emerald"
                     large
                   />
-                  <KpiTile
-                    label="Efectiva Anual de referencia"
-                    value={resAV.data.ea}
-                    formatter={(v) => fmtPct(v, 4)}
-                    caption={`Con m = ${fmtNum(resAV.data.m, 0)} periodos/año`}
-                    tone="ochre"
-                  />
+                  {resAV.data.ea !== null && resAV.data.m !== null ? (
+                    <KpiTile
+                      label="Efectiva Anual de referencia"
+                      value={resAV.data.ea}
+                      formatter={(v) => fmtPct(v, 4)}
+                      caption={`Con m = ${fmtNum(resAV.data.m, 0)} periodos/año`}
+                      tone="ochre"
+                    />
+                  ) : (
+                    <div className="flex items-center border border-dashed border-[var(--line-strong)] bg-[var(--paper)] px-4 py-3 text-xs text-[var(--ink-faint)]">
+                      Opcional: ingrese «Periodos por año» para proyectar la Efectiva Anual.
+                    </div>
+                  )}
                 </div>
                 <FormulaBar
                   simbolica={avDir === 'a2v' ? 'iv = ia / (1 - ia)' : 'ia = iv / (1 + iv)'}
@@ -544,13 +622,8 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                   }
                 />
               </>
-            ) : (
-              <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-4 text-sm text-[var(--crimson)]">
-                {resAV.error}
-              </div>
             ))}
 
-          {/* Gráfica animada de escalera de equivalencias */}
           {escalera.length > 0 && eaActiva !== null && (
             <div className="border border-[var(--line)] bg-white p-4">
               <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--line)] pb-2">
@@ -600,10 +673,12 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                       </div>
                       <div className="col-span-4 text-right font-mono-num text-[11px] leading-tight">
                         <div className="font-semibold text-[var(--emerald)]">
-                          {fmtPct(fila.nominalVencida, 3)} <span className="text-[10px] font-normal text-[var(--ink-faint)]">nom</span>
+                          {fmtPct(fila.nominalVencida, 3)}{' '}
+                          <span className="text-[10px] font-normal text-[var(--ink-faint)]">nom</span>
                         </div>
                         <div className="text-[var(--ochre)]">
-                          {fmtPct(fila.periodicaVencida, 4)} <span className="text-[10px] text-[var(--ink-faint)]">per</span>
+                          {fmtPct(fila.periodicaVencida, 4)}{' '}
+                          <span className="text-[10px] text-[var(--ink-faint)]">per</span>
                         </div>
                       </div>
                     </div>

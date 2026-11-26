@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Eraser } from 'lucide-react';
 import {
   ErrorFinanciero,
   FRECUENCIAS_TASA,
@@ -32,7 +32,6 @@ function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
   const maxP = Math.max(res.gracia + res.n, ...periodos, 1);
   const xOf = (p: number) => padX + (p / maxP) * (W - padX * 2);
 
-  // Si hay muchos pagos, mostramos una muestra visual con puntos suspensivos en el centro
   const mostrarTodos = periodos.length <= 16;
   const mostrados = mostrarTodos
     ? periodos
@@ -65,7 +64,6 @@ function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
 
       <div className="chart-grid-bg overflow-x-auto p-2">
         <svg viewBox={`0 0 ${W} ${H}`} className="h-auto min-w-[500px] w-full select-none">
-          {/* Zona sombreada de gracia si es diferida */}
           {res.tipo === 'diferida' && res.gracia > 0 && (
             <g>
               <rect
@@ -88,10 +86,8 @@ function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
             </g>
           )}
 
-          {/* Eje temporal */}
           <line x1={padX - 10} x2={W - padX + 10} y1={axisY} y2={axisY} stroke="#171614" strokeWidth="2" />
 
-          {/* Flecha de VP en t=0 */}
           <g className="svg-smooth">
             <line x1={xOf(0)} x2={xOf(0)} y1={axisY} y2={axisY - 66} stroke="#1d4ed8" strokeWidth="2.8" />
             <polygon points={`${xOf(0)},${axisY - 73} ${xOf(0) - 5},${axisY - 64} ${xOf(0) + 5},${axisY - 64}`} fill="#1d4ed8" />
@@ -100,7 +96,6 @@ function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
             </text>
           </g>
 
-          {/* Flecha de VF en t=maxP */}
           <g className="svg-smooth">
             <line x1={xOf(maxP)} x2={xOf(maxP)} y1={axisY} y2={axisY - 66} stroke="#b45309" strokeWidth="2.4" strokeDasharray="4 2" />
             <polygon points={`${xOf(maxP)},${axisY - 73} ${xOf(maxP) - 5},${axisY - 64} ${xOf(maxP) + 5},${axisY - 64}`} fill="#b45309" />
@@ -109,7 +104,6 @@ function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
             </text>
           </g>
 
-          {/* Flechas de pagos R hacia abajo */}
           {mostrados.map((p, idx) => {
             const x = xOf(p);
             return (
@@ -142,10 +136,10 @@ function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
 export function AnualidadesTab({ tasaTransferida }: Props) {
   const [tipo, setTipo] = useState<TipoAnualidad>('vencida');
   const [objetivo, setObjetivo] = useState<ObjetivoAnualidad>('R_desde_VP');
-  const [montoStr, setMontoStr] = useState('1.000.000');
-  const [iStr, setIStr] = useState('10');
-  const [nStr, setNStr] = useState('4');
-  const [graciaStr, setGraciaStr] = useState('3');
+  const [montoStr, setMontoStr] = useState('');
+  const [iStr, setIStr] = useState('');
+  const [nStr, setNStr] = useState('');
+  const [graciaStr, setGraciaStr] = useState('');
   const [mTasa, setMTasa] = useState('12');
   const [mPago, setMPago] = useState('4');
   const [genAnt, setGenAnt] = useState(false);
@@ -157,11 +151,19 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
   }, [tasaTransferida]);
 
   const calculo = useMemo(() => {
+    const faltaGracia = tipo === 'diferida' && !graciaStr.trim();
+    if (!montoStr.trim() || !iStr.trim() || !nStr.trim() || faltaGracia) {
+      return { estado: 'vacio' as const };
+    }
+
     try {
       const monto = parsearNumero(montoStr, 'Monto', { esMonto: true });
       const i = parsearTasa(iStr, 'Tasa periódica i');
       const n = parsearEnteroPositivo(nStr, 'Número de pagos n');
-      const gracia = tipo === 'diferida' ? Math.max(0, Math.round(parsearNumero(graciaStr, 'Periodos de gracia'))) : 0;
+      const gracia =
+        tipo === 'diferida'
+          ? Math.max(0, Math.round(parsearNumero(graciaStr, 'Periodos de gracia')))
+          : 0;
       const mt = tipo === 'general' ? parsearNumero(mTasa, 'Frecuencia tasa') : undefined;
       const mp = tipo === 'general' ? parsearNumero(mPago, 'Frecuencia pago') : undefined;
 
@@ -176,9 +178,12 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
         mPago: mp,
         generalAnticipada: genAnt,
       });
-      return { ok: true as const, data };
+      return { estado: 'ok' as const, data };
     } catch (e) {
-      return { ok: false as const, error: e instanceof ErrorFinanciero ? e.message : 'Revise los datos ingresados.' };
+      return {
+        estado: 'error' as const,
+        error: e instanceof ErrorFinanciero ? e.message : 'Revise los datos ingresados.',
+      };
     }
   }, [tipo, objetivo, montoStr, iStr, nStr, graciaStr, mTasa, mPago, genAnt]);
 
@@ -191,67 +196,15 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
 
   return (
     <div className="animate-panel space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
-        <div>
-          <p className="font-mono-num text-[11px] uppercase tracking-[0.12em] text-[var(--emerald)]">
-            Módulo 05 · Series Uniformes (Apoyo del Curso)
-          </p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--ink)]">
-            Anualidades: vencida, anticipada, diferida y general
-          </h2>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ink-faint)]">
-            <Sparkles className="h-3.5 w-3.5" /> Casos Excel:
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setTipo('anticipada');
-              setObjetivo('VF');
-              setMontoStr('1.000.000');
-              setIStr('2');
-              setNStr('12');
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            Anticipada (Hoja2)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTipo('diferida');
-              setObjetivo('R_desde_VP');
-              setMontoStr('8.000.000');
-              setIStr('9');
-              setNStr('20');
-              setGraciaStr('3');
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            Diferida (Hoja5)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTipo('general');
-              setObjetivo('VF');
-              setMontoStr('250.000');
-              setIStr('2');
-              setNStr('30');
-              setMTasa('12');
-              setMPago('4');
-              setGenAnt(false);
-            }}
-            className="cursor-pointer border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-          >
-            General (Hoja6)
-          </button>
-        </div>
+      <div className="border-b border-[var(--line)] pb-4">
+        <p className="font-mono-num text-[11px] uppercase tracking-[0.12em] text-[var(--emerald)]">
+          Módulo 05 · Series Uniformes
+        </p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--ink)]">
+          Anualidades: vencida, anticipada, diferida y general
+        </h2>
       </div>
 
-      {/* Selector de tipo de anualidad */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
           { id: 'vencida' as TipoAnualidad, titulo: 'Ordinaria / Vencida', desc: 'Pagos al final de cada periodo' },
@@ -281,7 +234,6 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Entradas */}
         <div className="space-y-4 border border-[var(--line)] bg-white p-5 lg:col-span-5">
           <div>
             <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
@@ -310,7 +262,14 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
             </div>
           </div>
 
-          <FieldInput id="an-monto" label={etiquetaMonto} prefix="$" value={montoStr} onChange={setMontoStr} />
+          <FieldInput
+            id="an-monto"
+            label={etiquetaMonto}
+            prefix="$"
+            value={montoStr}
+            onChange={setMontoStr}
+            placeholder="Ej. 1.000.000"
+          />
 
           <div className="grid grid-cols-2 gap-3">
             <FieldInput
@@ -319,8 +278,15 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
               suffix="%"
               value={iStr}
               onChange={setIStr}
+              placeholder="Ej. 2"
             />
-            <FieldInput id="an-n" label="Número de pagos (n)" value={nStr} onChange={setNStr} />
+            <FieldInput
+              id="an-n"
+              label="Número de pagos (n)"
+              value={nStr}
+              onChange={setNStr}
+              placeholder="Ej. 12"
+            />
           </div>
 
           {tipo === 'diferida' && (
@@ -330,7 +296,8 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
               suffix="per."
               value={graciaStr}
               onChange={setGraciaStr}
-              helper="Ej.: si empieza a pagar en el periodo 4, hay k = 3 periodos de gracia."
+              placeholder="Ej. 3"
+              helper="Si el primer pago es en el periodo 4, hay k = 3 periodos de gracia."
             />
           )}
 
@@ -381,11 +348,35 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
               </label>
             </div>
           )}
+
+          <div className="flex justify-end border-t border-[var(--line)] pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMontoStr('');
+                setIStr('');
+                setNStr('');
+                setGraciaStr('');
+              }}
+              className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
+            >
+              <Eraser className="h-3.5 w-3.5" /> Limpiar
+            </button>
+          </div>
         </div>
 
-        {/* Resultados + Esquema temporal */}
         <div className="space-y-4 lg:col-span-7">
-          {!calculo.ok ? (
+          {calculo.estado === 'vacio' ? (
+            <div className="chart-grid-bg flex min-h-[340px] flex-col items-center justify-center border border-[var(--line)] p-8 text-center">
+              <p className="font-editorial text-lg font-semibold text-[var(--ink)]">
+                Ingrese los parámetros de la anualidad
+              </p>
+              <p className="mt-1.5 max-w-sm text-xs text-[var(--ink-muted)]">
+                Complete el monto, la tasa periódica i (%) y el número de pagos n para calcular el
+                resultado y visualizar su esquema temporal.
+              </p>
+            </div>
+          ) : calculo.estado === 'error' ? (
             <div className="border border-[var(--crimson)] bg-[var(--crimson-soft)] p-5 text-sm text-[var(--crimson)]">
               {calculo.error}
             </div>
