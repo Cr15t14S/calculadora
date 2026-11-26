@@ -33,6 +33,7 @@ function DiagramaFlujoCajaSVG({
   onHover,
   onChangeFF,
   solucion,
+  expandido = false,
 }: {
   detalle: FlujoDetalle[];
   ff: number;
@@ -43,14 +44,10 @@ function DiagramaFlujoCajaSVG({
     | { tipo: 'unico'; k: number; valor: number }
     | { tipo: 'cuotas'; periodos: number[]; valor: number }
     | null;
+  expandido?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [arrastrando, setArrastrando] = useState(false);
-
-  const W = 680;
-  const H = 272;
-  const padX = 48;
-  const axisY = 144;
 
   const todosPeriodos = [
     ff,
@@ -61,6 +58,11 @@ function DiagramaFlujoCajaSVG({
   const minP = Math.min(0, ...todosPeriodos);
   const maxP = Math.max(minP + 1, ...todosPeriodos);
   const spanP = maxP - minP || 1;
+
+  const padX = expandido ? 64 : 48;
+  const W = expandido ? Math.max(1080, padX * 2 + spanP * 48) : 680;
+  const H = expandido ? 360 : 272;
+  const axisY = expandido ? 190 : 144;
 
   const xOf = (p: number) => padX + ((p - minP) / spanP) * (W - padX * 2);
 
@@ -98,20 +100,21 @@ function DiagramaFlujoCajaSVG({
     ...detalle.map((d) => d.monto),
     solucion ? Math.abs(solucion.valor) : 0
   );
-  const lenOf = (m: number) => 28 + (Math.abs(m) / maxMonto) * 58;
+  const lenOf = (m: number) => (expandido ? 38 : 28) + (Math.abs(m) / maxMonto) * (expandido ? 82 : 58);
 
-  const paso = spanP > 18 ? Math.ceil(spanP / 12) : 1;
+  const paso = expandido ? 1 : spanP > 18 ? Math.ceil(spanP / 12) : 1;
   const ticks: number[] = [];
   for (let p = Math.ceil(minP); p <= Math.floor(maxP); p += paso) {
     ticks.push(p);
   }
 
   return (
-    <div className="chart-grid-bg overflow-x-auto p-2">
+    <div className="chart-grid-bg overflow-x-auto p-2 ledger-scroll">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
-        className={`h-auto min-w-[540px] w-full select-none touch-none ${
+        style={expandido ? { minWidth: `${W}px` } : undefined}
+        className={`h-auto w-full select-none touch-none ${expandido ? '' : 'min-w-[540px]'} ${
           arrastrando ? 'cursor-ew-resize' : ''
         }`}
         onPointerMove={moverArrastre}
@@ -250,22 +253,22 @@ function DiagramaFlujoCajaSVG({
         {solucion &&
           solucion.tipo === 'cuotas' &&
           Math.abs(solucion.valor) > 0.01 &&
-          solucion.periodos.slice(0, 24).map((p, idx) => {
+          (expandido ? solucion.periodos : solucion.periodos.slice(0, 24)).map((p, idx) => {
             const x = xOf(p);
-            const len = Math.min(64, lenOf(solucion.valor));
+            const len = Math.min(expandido ? 88 : 64, lenOf(solucion.valor));
             const yEnd = axisY + len;
             return (
               <g key={`r-${p}-${idx}`} pointerEvents="none">
                 <line x1={x} x2={x} y1={axisY} y2={yEnd} stroke="#1d4ed8" strokeWidth="2.2" />
                 <polygon points={`${x},${yEnd + 6} ${x - 4},${yEnd - 1} ${x + 4},${yEnd - 1}`} fill="#1d4ed8" />
-                {idx === 0 && (
+                {(expandido || idx === 0) && (
                   <text
                     x={x}
                     y={yEnd + 18}
                     textAnchor="middle"
                     className="fill-[#1d4ed8] font-mono-num text-[10px] font-bold"
                   >
-                    R={fmtDineroCorto(solucion.valor)}
+                    {idx === 0 ? `R=${fmtDineroCorto(solucion.valor)}` : fmtDineroCorto(solucion.valor)}
                   </text>
                 )}
               </g>
@@ -363,10 +366,10 @@ function DiagramaFlujoCaja(props: {
         open={ampliado}
         onClose={() => setAmpliado(false)}
         title={`Diagrama de flujo de caja — Fecha Focal FF = ${fmtNum(props.ff, 0)}`}
-        subtitle="Puede arrastrar la bandera ⇄ FF o hacer clic en el eje incluso en vista ampliada"
+        subtitle="Se muestran todos los periodos y cuotas · Arrastre la bandera ⇄ FF o haga clic en el eje"
       >
         <div className="border border-[var(--line)] bg-white">
-          <DiagramaFlujoCajaSVG {...props} />
+          <DiagramaFlujoCajaSVG {...props} expandido />
         </div>
       </ExpandableModal>
     </>

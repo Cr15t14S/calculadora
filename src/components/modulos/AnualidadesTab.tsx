@@ -23,24 +23,44 @@ interface Props {
   tasaTransferida?: { valorPct: string; token: number } | null;
 }
 
-function DiagramaAnualidadSVG({ res }: { res: ResultadoAnualidad }) {
-  const W = 640;
-  const H = 200;
-  const padX = 44;
-  const axisY = 122;
+function DiagramaAnualidadSVG({
+  res,
+  expandido = false,
+}: {
+  res: ResultadoAnualidad;
+  expandido?: boolean;
+}) {
+  const [hoverPeriodo, setHoverPeriodo] = useState<number | null>(null);
 
   const periodos = res.periodosPago;
   const maxP = Math.max(res.gracia + res.n, ...periodos, 1);
+  const padX = expandido ? 64 : 44;
+  // En vista expandida ampliamos dinámicamente el ancho para mostrar TODOS los pagos con espacio legible
+  const W = expandido ? Math.max(1080, padX * 2 + maxP * 46) : 640;
+  const H = expandido ? 290 : 200;
+  const axisY = expandido ? 160 : 122;
+
   const xOf = (p: number) => padX + (p / maxP) * (W - padX * 2);
 
-  const mostrarTodos = periodos.length <= 16;
+  const mostrarTodos = expandido || periodos.length <= 16;
   const mostrados = mostrarTodos
     ? periodos
     : [...periodos.slice(0, 6), ...periodos.slice(-5)];
 
+  const pagoHoverIndex = hoverPeriodo !== null ? periodos.indexOf(hoverPeriodo) : -1;
+  const vpPagoHover =
+    hoverPeriodo !== null ? res.r / Math.pow(1 + res.iEfectivaPago, hoverPeriodo) : null;
+  const vfPagoHover =
+    hoverPeriodo !== null ? res.r * Math.pow(1 + res.iEfectivaPago, maxP - hoverPeriodo) : null;
+
   return (
-    <div className="chart-grid-bg overflow-x-auto p-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto min-w-[500px] w-full select-none">
+    <div className="chart-grid-bg overflow-x-auto p-2 ledger-scroll">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        style={expandido ? { minWidth: `${W}px` } : undefined}
+        className={`h-auto w-full select-none ${expandido ? '' : 'min-w-[500px]'}`}
+        onMouseLeave={() => setHoverPeriodo(null)}
+      >
         {res.tipo === 'diferida' && res.gracia > 0 && (
           <g>
             <rect
@@ -54,42 +74,119 @@ function DiagramaAnualidadSVG({ res }: { res: ResultadoAnualidad }) {
             />
             <text
               x={(xOf(0) + xOf(res.gracia)) / 2}
-              y={46}
+              y={48}
               textAnchor="middle"
-              className="fill-[#b45309] font-mono-num text-[10px] font-semibold"
+              className="fill-[#b45309] font-mono-num text-[11px] font-semibold"
             >
               Gracia ({res.gracia})
             </text>
           </g>
         )}
 
-        <line x1={padX - 10} x2={W - padX + 10} y1={axisY} y2={axisY} stroke="#171614" strokeWidth="2" />
+        <line x1={padX - 12} x2={W - padX + 12} y1={axisY} y2={axisY} stroke="#171614" strokeWidth="2" />
 
+        {/* Flecha VP en t = 0 */}
         <g className="svg-smooth">
-          <line x1={xOf(0)} x2={xOf(0)} y1={axisY} y2={axisY - 66} stroke="#1d4ed8" strokeWidth="2.8" />
-          <polygon points={`${xOf(0)},${axisY - 73} ${xOf(0) - 5},${axisY - 64} ${xOf(0) + 5},${axisY - 64}`} fill="#1d4ed8" />
-          <text x={xOf(0)} y={axisY - 78} textAnchor="middle" className="fill-[#1d4ed8] font-mono-num text-[10px] font-bold">
+          <line
+            x1={xOf(0)}
+            x2={xOf(0)}
+            y1={axisY}
+            y2={axisY - (expandido ? 92 : 66)}
+            stroke="#1d4ed8"
+            strokeWidth="2.8"
+          />
+          <polygon
+            points={`${xOf(0)},${axisY - (expandido ? 100 : 73)} ${xOf(0) - 5.5},${axisY - (expandido ? 90 : 64)} ${xOf(0) + 5.5},${axisY - (expandido ? 90 : 64)}`}
+            fill="#1d4ed8"
+          />
+          <text
+            x={xOf(0)}
+            y={axisY - (expandido ? 108 : 78)}
+            textAnchor="middle"
+            className={`fill-[#1d4ed8] font-mono-num font-bold ${expandido ? 'text-[12px]' : 'text-[10px]'}`}
+          >
             VP {fmtDineroCorto(res.vp)}
           </text>
         </g>
 
+        {/* Flecha VF en t = maxP */}
         <g className="svg-smooth">
-          <line x1={xOf(maxP)} x2={xOf(maxP)} y1={axisY} y2={axisY - 66} stroke="#b45309" strokeWidth="2.4" strokeDasharray="4 2" />
-          <polygon points={`${xOf(maxP)},${axisY - 73} ${xOf(maxP) - 5},${axisY - 64} ${xOf(maxP) + 5},${axisY - 64}`} fill="#b45309" />
-          <text x={xOf(maxP)} y={axisY - 78} textAnchor="middle" className="fill-[#b45309] font-mono-num text-[10px] font-bold">
+          <line
+            x1={xOf(maxP)}
+            x2={xOf(maxP)}
+            y1={axisY}
+            y2={axisY - (expandido ? 92 : 66)}
+            stroke="#b45309"
+            strokeWidth="2.4"
+            strokeDasharray="4 2"
+          />
+          <polygon
+            points={`${xOf(maxP)},${axisY - (expandido ? 100 : 73)} ${xOf(maxP) - 5.5},${axisY - (expandido ? 90 : 64)} ${xOf(maxP) + 5.5},${axisY - (expandido ? 90 : 64)}`}
+            fill="#b45309"
+          />
+          <text
+            x={xOf(maxP)}
+            y={axisY - (expandido ? 108 : 78)}
+            textAnchor="middle"
+            className={`fill-[#b45309] font-mono-num font-bold ${expandido ? 'text-[12px]' : 'text-[10px]'}`}
+          >
             VF {fmtDineroCorto(res.vf)}
           </text>
         </g>
 
+        {/* Flechas individuales de cada pago R */}
         {mostrados.map((p, idx) => {
           const x = xOf(p);
+          const esHover = hoverPeriodo === p;
+          const largo = expandido ? 64 : 42;
+          const color = esHover ? '#1d4ed8' : '#0d5c46';
           return (
-            <g key={`${p}-${idx}`} className="svg-smooth">
-              <line x1={x} x2={x} y1={axisY} y2={axisY + 42} stroke="#0d5c46" strokeWidth="2.2" />
-              <polygon points={`${x},${axisY + 48} ${x - 4},${axisY + 40} ${x + 4},${axisY + 40}`} fill="#0d5c46" />
-              <text x={x} y={axisY + 61} textAnchor="middle" className="fill-[#5c584f] font-mono-num text-[9px]">
+            <g
+              key={`${p}-${idx}`}
+              className="svg-smooth cursor-pointer"
+              onMouseEnter={() => expandido && setHoverPeriodo(p)}
+            >
+              {expandido && (
+                <rect x={x - 16} y={axisY} width={32} height={largo + 46} fill="transparent" />
+              )}
+              <line
+                x1={x}
+                x2={x}
+                y1={axisY}
+                y2={axisY + largo}
+                stroke={color}
+                strokeWidth={esHover ? 3.2 : 2.2}
+              />
+              <polygon
+                points={`${x},${axisY + largo + 7} ${x - 4.5},${axisY + largo - 1} ${x + 4.5},${axisY + largo - 1}`}
+                fill={color}
+              />
+              <text
+                x={x}
+                y={axisY + largo + 20}
+                textAnchor="middle"
+                className={`font-mono-num ${
+                  esHover
+                    ? 'fill-[#1d4ed8] text-[11px] font-bold'
+                    : expandido
+                      ? 'fill-[#171614] text-[10px] font-semibold'
+                      : 'fill-[#5c584f] text-[9px]'
+                }`}
+              >
                 {p}
               </text>
+              {expandido && (
+                <text
+                  x={x}
+                  y={axisY + largo + 34}
+                  textAnchor="middle"
+                  className={`font-mono-num text-[9px] ${
+                    esHover ? 'fill-[#1d4ed8] font-semibold' : 'fill-[#5c584f]'
+                  }`}
+                >
+                  {fmtDineroCorto(res.r)}
+                </text>
+              )}
             </g>
           );
         })}
@@ -101,10 +198,52 @@ function DiagramaAnualidadSVG({ res }: { res: ResultadoAnualidad }) {
             textAnchor="middle"
             className="fill-[#0d5c46] font-mono-num text-sm font-bold"
           >
-            ··· ({res.n} pagos de {fmtDineroCorto(res.r)}) ···
+            ··· ({res.n} pagos de {fmtDineroCorto(res.r)} · clic en Ampliar para ver todos) ···
           </text>
         )}
       </svg>
+
+      {expandido && (
+        <div className="mt-2 grid grid-cols-2 gap-3 border-t border-[var(--line)] bg-white px-4 py-2.5 text-xs sm:grid-cols-4">
+          {hoverPeriodo !== null && vpPagoHover !== null && vfPagoHover !== null ? (
+            <>
+              <div>
+                <span className="block text-[10px] uppercase text-[var(--ink-faint)]">
+                  Pago #{pagoHoverIndex + 1} (Periodo {hoverPeriodo})
+                </span>
+                <span className="font-mono-num font-semibold text-[var(--cobalt)]">
+                  t = {hoverPeriodo}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[10px] uppercase text-[var(--ink-faint)]">Cuota R</span>
+                <span className="font-mono-num font-semibold text-[var(--emerald)]">
+                  {fmtDinero(res.r)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[10px] uppercase text-[var(--ink-faint)]">
+                  Valor presente en t = 0
+                </span>
+                <span className="font-mono-num font-semibold">{fmtDinero(vpPagoHover)}</span>
+              </div>
+              <div>
+                <span className="block text-[10px] uppercase text-[var(--ink-faint)]">
+                  Valor futuro en t = {maxP}
+                </span>
+                <span className="font-mono-num font-semibold text-[var(--ochre)]">
+                  {fmtDinero(vfPagoHover)}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="col-span-full text-[var(--ink-muted)]">
+              Mostrando los <strong className="font-mono-num text-[var(--ink)]">{res.n}</strong> pagos completos.
+              Pase el cursor sobre cualquier flecha para ver su valor presente y valor futuro individual.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -141,21 +280,21 @@ function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
 
         <div
           className="cursor-zoom-in"
-          title="Haga clic para ampliar el esquema"
+          title="Haga clic para ampliar y ver todos los pagos"
           onClick={() => setAmpliado(true)}
         >
-          <DiagramaAnualidadSVG res={res} />
+          <DiagramaAnualidadSVG res={res} expandido={false} />
         </div>
       </div>
 
       <ExpandableModal
         open={ampliado}
         onClose={() => setAmpliado(false)}
-        title={`Esquema temporal de la anualidad (${res.n} pagos)`}
-        subtitle="Use los controles de zoom para inspeccionar cada periodo en detalle"
+        title={`Esquema temporal completo — ${res.n} pagos`}
+        subtitle="Se muestran todos los pagos uno por uno · Desplace horizontalmente o use zoom para ver más de cerca"
       >
         <div className="border border-[var(--line)] bg-white">
-          <DiagramaAnualidadSVG res={res} />
+          <DiagramaAnualidadSVG res={res} expandido />
         </div>
       </ExpandableModal>
     </>

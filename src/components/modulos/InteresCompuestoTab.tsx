@@ -49,9 +49,9 @@ function GraficaCrecimientoSVG({
     );
   }
 
-  const W = 620;
+  const W = 640;
   const H = 290;
-  const pad = { top: 24, right: 24, bottom: 38, left: 66 };
+  const pad = { top: 24, right: 24, bottom: 38, left: 88 };
   const plotW = W - pad.left - pad.right;
   const plotH = H - pad.top - pad.bottom;
 

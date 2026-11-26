@@ -54,9 +54,9 @@ function GraficaSaldoPrestamo({
   const [hoverPeriodo, setHoverPeriodo] = useState<number | null>(null);
   if (filas.length < 2) return null;
 
-  const W = 660;
+  const W = 680;
   const H = 268;
-  const pad = { top: 28, right: 24, bottom: 34, left: 66 };
+  const pad = { top: 28, right: 24, bottom: 34, left: 82 };
   const plotW = W - pad.left - pad.right;
   const plotH = H - pad.top - pad.bottom;
 
@@ -287,23 +287,25 @@ function GraficaBarrasCuota({
   filas,
   selectedPeriodo,
   onSelectPeriodo,
+  expandido = false,
 }: {
   filas: FilaPrestamo[];
   selectedPeriodo: number | null;
   onSelectPeriodo: (periodo: number | null) => void;
+  expandido?: boolean;
 }) {
   const [hoverPeriodo, setHoverPeriodo] = useState<number | null>(null);
   const sinCero = filas.slice(1);
   if (sinCero.length === 0) return null;
 
-  const paso = sinCero.length > 48 ? Math.ceil(sinCero.length / 48) : 1;
+  const paso = expandido ? 1 : sinCero.length > 48 ? Math.ceil(sinCero.length / 48) : 1;
   const visibles = sinCero.filter(
     (f, idx) => idx % paso === 0 || idx === sinCero.length - 1 || f.periodo === selectedPeriodo
   );
 
-  const W = 660;
-  const H = 268;
-  const pad = { top: 28, right: 20, bottom: 34, left: 66 };
+  const pad = { top: 28, right: 24, bottom: 34, left: 82 };
+  const W = expandido ? Math.max(1080, pad.left + pad.right + visibles.length * 26) : 660;
+  const H = expandido ? 360 : 268;
   const plotW = W - pad.left - pad.right;
   const plotH = H - pad.top - pad.bottom;
 
@@ -324,8 +326,13 @@ function GraficaBarrasCuota({
   const active = filaHover ?? (filaSel && filaSel.periodo > 0 ? filaSel : null);
 
   return (
-    <div className="chart-grid-bg p-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full select-none" onMouseLeave={() => setHoverPeriodo(null)}>
+    <div className="chart-grid-bg overflow-x-auto p-2 ledger-scroll">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        style={expandido ? { minWidth: `${W}px` } : undefined}
+        className="h-auto w-full select-none"
+        onMouseLeave={() => setHoverPeriodo(null)}
+      >
         {yTicks.map((val, idx) => (
           <g key={idx}>
             <line
@@ -403,7 +410,8 @@ function GraficaBarrasCuota({
               {hExt > 0.5 && (
                 <rect x={x} y={yExt} width={barW} height={hExt} fill="#1d4ed8" className="svg-smooth" />
               )}
-              {(esSel ||
+              {(expandido ||
+                esSel ||
                 visibles.length <= 16 ||
                 idx % Math.ceil(visibles.length / 10) === 0 ||
                 idx === visibles.length - 1) && (
@@ -474,9 +482,9 @@ function GraficaCuenta({
   const [hoverPeriodo, setHoverPeriodo] = useState<number | null>(null);
   if (filas.length < 2) return null;
 
-  const W = 660;
+  const W = 680;
   const H = 260;
-  const pad = { top: 28, right: 24, bottom: 34, left: 66 };
+  const pad = { top: 28, right: 24, bottom: 34, left: 82 };
   const plotW = W - pad.left - pad.right;
   const plotH = H - pad.top - pad.bottom;
 
@@ -1315,6 +1323,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                       filas={calculo.data.filas}
                       selectedPeriodo={selectedPeriodo}
                       onSelectPeriodo={setSelectedPeriodo}
+                      expandido
                     />
                   )}
                 </div>
