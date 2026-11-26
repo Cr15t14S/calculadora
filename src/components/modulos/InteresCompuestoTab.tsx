@@ -12,6 +12,7 @@ import {
   type IncognitaIC,
   type PuntoSerieIC,
 } from '../../lib/finanzas';
+import { ExpandButton, ExpandableModal } from '../ui/ExpandableModal';
 import { FieldInput } from '../ui/FieldInput';
 import { FormulaBar } from '../ui/FormulaBar';
 import { KpiTile } from '../ui/KpiTile';
@@ -27,7 +28,7 @@ const OPCIONES: Array<{ id: IncognitaIC; titulo: string; simbolo: string }> = [
   { id: 'n', titulo: 'Periodos', simbolo: 'n' },
 ];
 
-function GraficaCrecimiento({
+function GraficaCrecimientoSVG({
   serie,
   vp,
   vf,
@@ -78,6 +79,173 @@ function GraficaCrecimiento({
 
   const active = hoverIdx !== null ? serie[hoverIdx] : serie[serie.length - 1];
   const totalGanado = vf - vp;
+
+  return (
+    <div className="chart-grid-bg relative p-2">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="h-auto w-full select-none"
+        onMouseLeave={() => setHoverIdx(null)}
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const relX = ((e.clientX - rect.left) / rect.width) * W;
+          const frac = Math.max(0, Math.min(1, (relX - pad.left) / plotW));
+          const idx = Math.round(frac * (serie.length - 1));
+          setHoverIdx(idx);
+        }}
+      >
+        {yTicks.map((val, idx) => (
+          <g key={idx}>
+            <line
+              x1={pad.left}
+              x2={W - pad.right}
+              y1={yOf(val)}
+              y2={yOf(val)}
+              stroke="#d8d2c4"
+              strokeDasharray={idx === 0 ? undefined : '2 3'}
+            />
+            <text
+              x={pad.left - 8}
+              y={yOf(val) + 4}
+              textAnchor="end"
+              className="fill-[#5c584f] font-mono-num text-[10px]"
+            >
+              {fmtDineroCorto(val)}
+            </text>
+          </g>
+        ))}
+
+        {xTicks.map((t, idx) => (
+          <text
+            key={idx}
+            x={xOf(t)}
+            y={H - 12}
+            textAnchor="middle"
+            className="fill-[#5c584f] font-mono-num text-[10px]"
+          >
+            t = {fmtNum(t, t % 1 === 0 ? 0 : 1)}
+          </text>
+        ))}
+
+        {vp > 0 && (
+          <rect
+            x={pad.left}
+            y={capY}
+            width={plotW}
+            height={Math.max(0, baseY - capY)}
+            fill="#171614"
+            fillOpacity="0.06"
+            className="svg-smooth"
+          />
+        )}
+
+        <path
+          d={areaComp}
+          fill={totalGanado >= 0 ? '#0d5c46' : '#9f1239'}
+          fillOpacity="0.16"
+          className="svg-smooth"
+        />
+
+        <polyline
+          fill="none"
+          stroke="#b45309"
+          strokeWidth="1.75"
+          strokeDasharray="5 4"
+          points={simplePoints}
+          className="svg-smooth"
+        />
+
+        <polyline
+          key={`${vp}-${vf}-${n}`}
+          fill="none"
+          stroke={totalGanado >= 0 ? '#0d5c46' : '#9f1239'}
+          strokeWidth="2.75"
+          strokeLinejoin="round"
+          points={compPoints}
+          className="svg-draw-line"
+        />
+
+        {active && (
+          <g>
+            <line
+              x1={xOf(active.t)}
+              x2={xOf(active.t)}
+              y1={pad.top}
+              y2={baseY}
+              stroke="#171614"
+              strokeWidth="1"
+              strokeDasharray="3 3"
+            />
+            <circle
+              cx={xOf(active.t)}
+              cy={yOf(active.simple)}
+              r="3.5"
+              fill="#ffffff"
+              stroke="#b45309"
+              strokeWidth="2"
+            />
+            <circle
+              cx={xOf(active.t)}
+              cy={yOf(active.compuesto)}
+              r="5"
+              fill="#0d5c46"
+              stroke="#ffffff"
+              strokeWidth="2"
+            />
+          </g>
+        )}
+      </svg>
+
+      {active && (
+        <div className="mt-1 grid grid-cols-2 gap-2 border-t border-[var(--line)] bg-white px-3 py-2 text-xs sm:grid-cols-4">
+          <div>
+            <span className="block text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
+              Periodo inspeccionado
+            </span>
+            <span className="font-mono-num font-semibold">t = {fmtNum(active.t, 2)}</span>
+          </div>
+          <div>
+            <span className="block text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
+              Saldo compuesto
+            </span>
+            <span className="font-mono-num font-semibold text-[var(--emerald)]">
+              {fmtDinero(active.compuesto)}
+            </span>
+          </div>
+          <div>
+            <span className="block text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
+              Referencia simple
+            </span>
+            <span className="font-mono-num font-semibold text-[var(--ochre)]">
+              {fmtDinero(active.simple)}
+            </span>
+          </div>
+          <div>
+            <span className="block text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
+              Efecto compuesto
+            </span>
+            <span className="font-mono-num font-semibold text-[var(--ink)]">
+              {fmtDinero(active.compuesto - active.simple)}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GraficaCrecimiento({
+  serie,
+  vp,
+  vf,
+  n,
+}: {
+  serie: PuntoSerieIC[];
+  vp: number;
+  vf: number;
+  n: number;
+}) {
+  const [abierto, setAbierto] = useState(false);
   const pctCap = vf > 0 ? Math.max(0, Math.min(100, (vp / vf) * 100)) : 50;
   const pctInt = 100 - pctCap;
 
@@ -93,7 +261,7 @@ function GraficaCrecimiento({
               Deslice el cursor sobre la gráfica para inspeccionar cada periodo
             </p>
           </div>
-          <div className="flex items-center gap-4 text-[11px] text-[var(--ink-muted)]">
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--ink-muted)]">
             <span className="flex items-center gap-1.5">
               <span className="inline-block h-2.5 w-2.5 bg-[var(--emerald)]" /> Compuesto
             </span>
@@ -103,158 +271,16 @@ function GraficaCrecimiento({
             <span className="flex items-center gap-1.5">
               <span className="inline-block h-2.5 w-2.5 bg-[#d8d2c4]" /> Capital base
             </span>
+            <ExpandButton onClick={() => setAbierto(true)} />
           </div>
         </div>
 
-        <div className="chart-grid-bg relative p-2">
-          <svg
-            viewBox={`0 0 ${W} ${H}`}
-            className="h-auto w-full select-none"
-            onMouseLeave={() => setHoverIdx(null)}
-            onMouseMove={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const relX = ((e.clientX - rect.left) / rect.width) * W;
-              const frac = Math.max(0, Math.min(1, (relX - pad.left) / plotW));
-              const idx = Math.round(frac * (serie.length - 1));
-              setHoverIdx(idx);
-            }}
-          >
-            {yTicks.map((val, idx) => (
-              <g key={idx}>
-                <line
-                  x1={pad.left}
-                  x2={W - pad.right}
-                  y1={yOf(val)}
-                  y2={yOf(val)}
-                  stroke="#d8d2c4"
-                  strokeDasharray={idx === 0 ? undefined : '2 3'}
-                />
-                <text
-                  x={pad.left - 8}
-                  y={yOf(val) + 4}
-                  textAnchor="end"
-                  className="fill-[#5c584f] font-mono-num text-[10px]"
-                >
-                  {fmtDineroCorto(val)}
-                </text>
-              </g>
-            ))}
-
-            {xTicks.map((t, idx) => (
-              <text
-                key={idx}
-                x={xOf(t)}
-                y={H - 12}
-                textAnchor="middle"
-                className="fill-[#5c584f] font-mono-num text-[10px]"
-              >
-                t = {fmtNum(t, t % 1 === 0 ? 0 : 1)}
-              </text>
-            ))}
-
-            {vp > 0 && (
-              <rect
-                x={pad.left}
-                y={capY}
-                width={plotW}
-                height={Math.max(0, baseY - capY)}
-                fill="#171614"
-                fillOpacity="0.06"
-                className="svg-smooth"
-              />
-            )}
-
-            <path
-              d={areaComp}
-              fill={totalGanado >= 0 ? '#0d5c46' : '#9f1239'}
-              fillOpacity="0.16"
-              className="svg-smooth"
-            />
-
-            <polyline
-              fill="none"
-              stroke="#b45309"
-              strokeWidth="1.75"
-              strokeDasharray="5 4"
-              points={simplePoints}
-              className="svg-smooth"
-            />
-
-            <polyline
-              key={`${vp}-${vf}-${n}`}
-              fill="none"
-              stroke={totalGanado >= 0 ? '#0d5c46' : '#9f1239'}
-              strokeWidth="2.75"
-              strokeLinejoin="round"
-              points={compPoints}
-              className="svg-draw-line"
-            />
-
-            {active && (
-              <g>
-                <line
-                  x1={xOf(active.t)}
-                  x2={xOf(active.t)}
-                  y1={pad.top}
-                  y2={baseY}
-                  stroke="#171614"
-                  strokeWidth="1"
-                  strokeDasharray="3 3"
-                />
-                <circle
-                  cx={xOf(active.t)}
-                  cy={yOf(active.simple)}
-                  r="3.5"
-                  fill="#ffffff"
-                  stroke="#b45309"
-                  strokeWidth="2"
-                />
-                <circle
-                  cx={xOf(active.t)}
-                  cy={yOf(active.compuesto)}
-                  r="5"
-                  fill="#0d5c46"
-                  stroke="#ffffff"
-                  strokeWidth="2"
-                />
-              </g>
-            )}
-          </svg>
-
-          {active && (
-            <div className="mt-1 grid grid-cols-2 gap-2 border-t border-[var(--line)] bg-white px-3 py-2 text-xs sm:grid-cols-4">
-              <div>
-                <span className="block text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
-                  Periodo inspeccionado
-                </span>
-                <span className="font-mono-num font-semibold">t = {fmtNum(active.t, 2)}</span>
-              </div>
-              <div>
-                <span className="block text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
-                  Saldo compuesto
-                </span>
-                <span className="font-mono-num font-semibold text-[var(--emerald)]">
-                  {fmtDinero(active.compuesto)}
-                </span>
-              </div>
-              <div>
-                <span className="block text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
-                  Referencia simple
-                </span>
-                <span className="font-mono-num font-semibold text-[var(--ochre)]">
-                  {fmtDinero(active.simple)}
-                </span>
-              </div>
-              <div>
-                <span className="block text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
-                  Efecto compuesto
-                </span>
-                <span className="font-mono-num font-semibold text-[var(--ink)]">
-                  {fmtDinero(active.compuesto - active.simple)}
-                </span>
-              </div>
-            </div>
-          )}
+        <div
+          className="cursor-zoom-in"
+          title="Haga clic para ampliar la gráfica"
+          onClick={() => setAbierto(true)}
+        >
+          <GraficaCrecimientoSVG serie={serie} vp={vp} vf={vf} n={n} />
         </div>
       </div>
 
@@ -280,6 +306,17 @@ function GraficaCrecimiento({
           </div>
         </div>
       )}
+
+      <ExpandableModal
+        open={abierto}
+        onClose={() => setAbierto(false)}
+        title="Curva de capitalización compuesta vs. interés simple"
+        subtitle="Vista ampliada · Use los controles de zoom o pase el cursor para inspeccionar"
+      >
+        <div className="border border-[var(--line)] bg-white">
+          <GraficaCrecimientoSVG serie={serie} vp={vp} vf={vf} n={n} />
+        </div>
+      </ExpandableModal>
     </div>
   );
 }
@@ -381,6 +418,7 @@ export function InteresCompuestoTab({ tasaTransferida }: Props) {
             <FieldInput
               id="ic-vp"
               label="Valor Presente (VP)"
+              kind="monto"
               prefix="$"
               value={valorMostrado('VP', vpStr)}
               onChange={setVpStr}
@@ -391,6 +429,7 @@ export function InteresCompuestoTab({ tasaTransferida }: Props) {
             <FieldInput
               id="ic-vf"
               label="Valor Futuro (VF)"
+              kind="monto"
               prefix="$"
               value={valorMostrado('VF', vfStr)}
               onChange={setVfStr}
@@ -401,6 +440,7 @@ export function InteresCompuestoTab({ tasaTransferida }: Props) {
             <FieldInput
               id="ic-i"
               label="Tasa periódica (i)"
+              kind="decimal"
               suffix="%"
               value={valorMostrado('i', iStr)}
               onChange={setIStr}
@@ -412,6 +452,7 @@ export function InteresCompuestoTab({ tasaTransferida }: Props) {
             <FieldInput
               id="ic-n"
               label="Número de periodos (n)"
+              kind="decimal"
               suffix="per."
               value={valorMostrado('n', nStr)}
               onChange={setNStr}

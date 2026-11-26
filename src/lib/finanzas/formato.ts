@@ -85,7 +85,80 @@ export function formatearCO(x: number, dec = 2): string {
 
 export function fmtDinero(x: number): string {
   if (!Number.isFinite(x)) return '—';
-  return `$ ${formatearCO(x, 2)}`;
+  return `$\u00A0${formatearCO(x, 2)}`;
+}
+
+/**
+ * Formatea en vivo un campo de monto: solo admite dígitos y una coma decimal
+ * (máx. 2 decimales) e inserta automáticamente puntos de miles.
+ * Rechaza letras, signos y caracteres especiales.
+ */
+export function formatearEntradaMonto(raw: string): string {
+  // Quitamos puntos (son separadores automáticos) y cualquier carácter que no sea dígito o coma
+  const sinPuntos = raw.replace(/\./g, '');
+  let limpio = '';
+  let tieneComa = false;
+
+  for (const ch of sinPuntos) {
+    if (ch >= '0' && ch <= '9') {
+      limpio += ch;
+    } else if (ch === ',' && !tieneComa) {
+      tieneComa = true;
+      limpio += ',';
+    }
+  }
+
+  if (!limpio) return '';
+
+  const [entCrudo, fracCrudo] = limpio.split(',');
+  let ent = entCrudo.replace(/^0+(?=\d)/, '');
+  if (!ent && tieneComa) ent = '0';
+  // Limita a 15 dígitos enteros para evitar overflow en IEEE-754
+  ent = ent.slice(0, 15);
+
+  const conMiles = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  if (!tieneComa) return conMiles;
+
+  const frac = (fracCrudo ?? '').slice(0, 2);
+  return `${conMiles},${frac}`;
+}
+
+/**
+ * Formatea en vivo un campo decimal positivo (ej. tasas en %, periodos decimales):
+ * solo admite dígitos y un separador decimal (convierte '.' a ',').
+ */
+export function formatearEntradaDecimal(raw: string, maxDec = 6): string {
+  let limpio = '';
+  let tieneComa = false;
+
+  for (const ch of raw) {
+    if (ch >= '0' && ch <= '9') {
+      limpio += ch;
+    } else if ((ch === ',' || ch === '.') && !tieneComa) {
+      tieneComa = true;
+      limpio += ',';
+    }
+  }
+
+  if (!limpio) return '';
+
+  const [entCrudo, fracCrudo] = limpio.split(',');
+  let ent = entCrudo.replace(/^0+(?=\d)/, '');
+  if (!ent && tieneComa) ent = '0';
+  ent = ent.slice(0, 9);
+
+  if (!tieneComa) return ent;
+  return `${ent},${(fracCrudo ?? '').slice(0, maxDec)}`;
+}
+
+/**
+ * Formatea en vivo un campo entero no negativo: solo admite dígitos 0-9.
+ */
+export function formatearEntradaEntero(raw: string, maxDigitos = 4): string {
+  const digitos = raw.replace(/\D/g, '');
+  if (!digitos) return '';
+  const sinCeros = digitos.replace(/^0+(?=\d)/, '');
+  return sinCeros.slice(0, maxDigitos);
 }
 
 /** Formato abreviado para ejes de gráficas: $1,2M / $450k */

@@ -18,8 +18,9 @@ import {
   fmtDinero,
   fmtDineroCorto,
   fmtNum,
+  formatearEntradaEntero,
+  formatearEntradaMonto,
   parsearEnteroPositivo,
-  parsearMovimientosTexto,
   parsearNumero,
   parsearTasa,
   tablaCuenta,
@@ -29,6 +30,7 @@ import {
   type ModoPrestamo,
   type MovimientoExtraItem,
 } from '../../lib/finanzas';
+import { ExpandButton, ExpandableModal } from '../ui/ExpandableModal';
 import { FieldInput } from '../ui/FieldInput';
 import { KpiTile } from '../ui/KpiTile';
 
@@ -169,7 +171,6 @@ function GraficaSaldoPrestamo({
           );
         })}
 
-        {/* Marcador fijado desde la fila seleccionada en la tabla */}
         {filaSeleccionada && (
           <g className="svg-smooth">
             <line
@@ -225,7 +226,6 @@ function GraficaSaldoPrestamo({
           </g>
         )}
 
-        {/* Cursor temporal al pasar el mouse */}
         {filaHover && filaHover.periodo !== selectedPeriodo && (
           <g>
             <line
@@ -636,10 +636,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
   const [depStr, setDepStr] = useState('');
   const [modoPrestamo, setModoPrestamo] = useState<ModoPrestamo>('cuota');
 
-  const [modoMov, setModoMov] = useState<'lista' | 'texto'>('lista');
   const [movItems, setMovItems] = useState<MovimientoExtraItem[]>([]);
-  const [movTexto, setMovTexto] = useState('');
-
   const [nuevoPer, setNuevoPer] = useState('');
   const [nuevoSigno, setNuevoSigno] = useState<1 | -1>(1);
   const [nuevoMonto, setNuevoMonto] = useState('');
@@ -647,6 +644,8 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
 
   const [graficaVista, setGraficaVista] = useState<'saldo' | 'barras'>('saldo');
   const [selectedPeriodo, setSelectedPeriodo] = useState<number | null>(null);
+  const [graficaAmpliada, setGraficaAmpliada] = useState(false);
+  const [tablaAmpliada, setTablaAmpliada] = useState(false);
   const chartSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -660,6 +659,17 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
       const periodo = parsearEnteroPositivo(nuevoPer, 'Periodo');
       const montoAbs = parsearNumero(nuevoMonto, 'Monto del movimiento', { esMonto: true });
       if (montoAbs <= 0) throw new ErrorFinanciero('Ingrese un monto positivo.');
+      const nActual = nStr.trim() ? Number(nStr) : null;
+      if (
+        nActual !== null &&
+        Number.isInteger(nActual) &&
+        nActual > 0 &&
+        !(tipoTabla === 'prestamo' && modoPrestamo === 'plazo') &&
+        periodo > nActual
+      ) {
+        throw new ErrorFinanciero(`El periodo (${periodo}) no puede superar el plazo n = ${nActual}.`);
+      }
+
       setMovItems((prev) => [
         ...prev,
         {
@@ -676,24 +686,6 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
     }
   };
 
-  const cambiarModoMov = (nuevo: 'lista' | 'texto') => {
-    if (nuevo === modoMov) return;
-    if (nuevo === 'texto') {
-      setMovTexto(movItems.map((m) => `${m.periodo}: ${m.monto}`).join('\n'));
-    } else {
-      try {
-        const mapa = parsearMovimientosTexto(movTexto);
-        const items: MovimientoExtraItem[] = Object.entries(mapa)
-          .sort((a, b) => Number(a[0]) - Number(b[0]))
-          .map(([p, m], idx) => ({ id: `imp-${idx}-${p}`, periodo: Number(p), monto: m }));
-        setMovItems(items);
-      } catch {
-        // Mantiene lista actual si hay un error de sintaxis
-      }
-    }
-    setModoMov(nuevo);
-  };
-
   const calculo = useMemo(() => {
     if (!vpStr.trim() || !iStr.trim() || !nStr.trim()) {
       return { estado: 'vacio' as const };
@@ -707,8 +699,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
       );
       const i = parsearTasa(iStr, 'Tasa periódica i');
       const n = parsearEnteroPositivo(nStr, 'Número de periodos n');
-      const movs =
-        modoMov === 'lista' ? agruparMovimientos(movItems) : parsearMovimientosTexto(movTexto);
+      const movs = agruparMovimientos(movItems);
 
       if (tipoTabla === 'prestamo') {
         const res = tablaPrestamo(vp, i, n, movs, modoPrestamo);
@@ -734,9 +725,8 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
         error: e instanceof ErrorFinanciero ? e.message : 'Revise los datos ingresados.',
       };
     }
-  }, [tipoTabla, vpStr, iStr, nStr, depStr, modoPrestamo, modoMov, movItems, movTexto]);
+  }, [tipoTabla, vpStr, iStr, nStr, depStr, modoPrestamo, movItems]);
 
-  // Limpia selección si el periodo seleccionado dejó de existir al cambiar n
   useEffect(() => {
     if (selectedPeriodo === null || calculo.estado !== 'ok') return;
     const existe = calculo.data.filas.some((f) => f.periodo === selectedPeriodo);
@@ -784,6 +774,134 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
     setSelectedPeriodo((prev) => (prev === periodo ? null : periodo));
   };
 
+  const renderTablaContenido = () => {
+    if (calculo.estado !== 'ok') return null;
+
+    if (calculo.tipo === 'prestamo') {
+      return (
+        <table className="w-full text-left text-xs">
+          <thead className="sticky top-0 z-10 bg-[var(--paper-alt)]">
+            <tr className="border-b border-[var(--line)] text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
+              <th className="px-3 py-2.5 text-center">Per.</th>
+              <th className="px-3 py-2.5 text-right">Saldo inicial</th>
+              <th className="px-3 py-2.5 text-right">Cuota</th>
+              <th className="px-3 py-2.5 text-right">Interés</th>
+              <th className="px-3 py-2.5 text-right">Abono capital</th>
+              <th className="px-3 py-2.5 text-right">Extra / Desemb.</th>
+              <th className="px-3 py-2.5 text-right">Saldo final</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--line)] font-mono-num">
+            {calculo.data.filas.map((f) => {
+              const tieneExtra = f.extra !== null && Math.abs(f.extra) > 0.01;
+              const esSel = selectedPeriodo === f.periodo;
+              return (
+                <tr
+                  key={f.periodo}
+                  onClick={() => seleccionarFila(f.periodo)}
+                  className={`cursor-pointer transition-colors ${
+                    esSel
+                      ? 'bg-[var(--cobalt-soft)] shadow-[inset_3px_0_0_0_var(--cobalt)]'
+                      : tieneExtra
+                        ? (f.extra ?? 0) > 0
+                          ? 'bg-[var(--emerald-soft)]/50 hover:bg-[var(--cobalt-soft)]/40'
+                          : 'bg-[var(--crimson-soft)]/50 hover:bg-[var(--cobalt-soft)]/40'
+                        : 'hover:bg-[var(--paper)]'
+                  }`}
+                >
+                  <td className="px-3 py-2 text-center font-semibold">
+                    <span className={esSel ? 'font-bold text-[var(--cobalt)]' : ''}>{f.periodo}</span>
+                  </td>
+                  <td className="px-3 py-2 text-right text-[var(--ink-muted)]">
+                    {f.saldoInicial === null ? '—' : fmtDinero(f.saldoInicial)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold">
+                    {f.cuota === null ? '—' : fmtDinero(f.cuota)}
+                  </td>
+                  <td className="px-3 py-2 text-right text-[var(--ochre)]">
+                    {f.interes === null ? '—' : fmtDinero(f.interes)}
+                  </td>
+                  <td className="px-3 py-2 text-right text-[var(--emerald)]">
+                    {f.abono === null ? '—' : fmtDinero(f.abono)}
+                  </td>
+                  <td
+                    className={`px-3 py-2 text-right font-semibold ${
+                      tieneExtra
+                        ? (f.extra ?? 0) > 0
+                          ? 'text-[var(--cobalt)]'
+                          : 'text-[var(--crimson)]'
+                        : 'text-[var(--ink-faint)]'
+                    }`}
+                  >
+                    {f.extra === null ? '—' : fmtDinero(f.extra)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold text-[var(--ink)]">
+                    {fmtDinero(f.saldoFinal)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      );
+    }
+
+    return (
+      <table className="w-full text-left text-xs">
+        <thead className="sticky top-0 z-10 bg-[var(--paper-alt)]">
+          <tr className="border-b border-[var(--line)] text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
+            <th className="px-3 py-2.5 text-center">Per.</th>
+            <th className="px-3 py-2.5 text-right">Saldo inicial</th>
+            <th className="px-3 py-2.5 text-right">Interés</th>
+            <th className="px-3 py-2.5 text-right">Depósito (+) / Retiro (-)</th>
+            <th className="px-3 py-2.5 text-right">Saldo final</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[var(--line)] font-mono-num">
+          {calculo.data.filas.map((f) => {
+            const mov = f.movimiento ?? 0;
+            const esSel = selectedPeriodo === f.periodo;
+            return (
+              <tr
+                key={f.periodo}
+                onClick={() => seleccionarFila(f.periodo)}
+                className={`cursor-pointer transition-colors ${
+                  esSel
+                    ? 'bg-[var(--cobalt-soft)] shadow-[inset_3px_0_0_0_var(--cobalt)]'
+                    : 'hover:bg-[var(--paper)]'
+                }`}
+              >
+                <td className="px-3 py-2 text-center font-semibold">
+                  <span className={esSel ? 'font-bold text-[var(--cobalt)]' : ''}>{f.periodo}</span>
+                </td>
+                <td className="px-3 py-2 text-right text-[var(--ink-muted)]">
+                  {f.saldoInicial === null ? '—' : fmtDinero(f.saldoInicial)}
+                </td>
+                <td className="px-3 py-2 text-right text-[var(--ochre)]">
+                  {f.interes === null ? '—' : fmtDinero(f.interes)}
+                </td>
+                <td
+                  className={`px-3 py-2 text-right font-semibold ${
+                    mov > 0
+                      ? 'text-[var(--emerald)]'
+                      : mov < 0
+                        ? 'text-[var(--crimson)]'
+                        : 'text-[var(--ink-faint)]'
+                  }`}
+                >
+                  {f.movimiento === null ? '—' : fmtDinero(f.movimiento)}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold text-[var(--ink)]">
+                  {fmtDinero(f.saldoFinal)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  };
+
   return (
     <div className="animate-panel space-y-6">
       <div className="border-b border-[var(--line)] pb-4">
@@ -811,7 +929,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                     : 'bg-[var(--paper)] text-[var(--ink-muted)]'
                 }`}
               >
-                Préstamo (Francés)
+                Préstamo
               </button>
               <button
                 type="button"
@@ -832,6 +950,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
             <FieldInput
               id="am-vp"
               label={tipoTabla === 'prestamo' ? 'Monto del préstamo (VP)' : 'Saldo inicial'}
+              kind="monto"
               prefix="$"
               value={vpStr}
               onChange={setVpStr}
@@ -841,6 +960,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
               <FieldInput
                 id="am-i"
                 label="Tasa periódica i"
+                kind="decimal"
                 suffix="%"
                 value={iStr}
                 onChange={setIStr}
@@ -849,6 +969,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
               <FieldInput
                 id="am-n"
                 label="Periodos (n)"
+                kind="entero"
                 value={nStr}
                 onChange={setNStr}
                 placeholder="Ej. 12"
@@ -889,6 +1010,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
               <FieldInput
                 id="am-dep"
                 label="Depósito fijo por periodo (opcional)"
+                kind="monto"
                 prefix="$"
                 value={depStr}
                 onChange={setDepStr}
@@ -906,7 +1028,6 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                   setNStr('');
                   setDepStr('');
                   setMovItems([]);
-                  setMovTexto('');
                   setSelectedPeriodo(null);
                 }}
                 className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--ink-muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
@@ -917,134 +1038,93 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
           </div>
 
           <div className="space-y-3 border border-[var(--line)] bg-white p-4">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
-                Movimientos extraordinarios
-              </h3>
-              <div className="flex border border-[var(--line)] text-[10px] font-semibold">
-                <button
-                  type="button"
-                  onClick={() => cambiarModoMov('lista')}
-                  className={`cursor-pointer px-2 py-1 ${
-                    modoMov === 'lista'
-                      ? 'bg-[var(--ink)] text-white'
-                      : 'bg-[var(--paper)] text-[var(--ink-muted)]'
-                  }`}
-                >
-                  Lista
-                </button>
-                <button
-                  type="button"
-                  onClick={() => cambiarModoMov('texto')}
-                  className={`cursor-pointer px-2 py-1 ${
-                    modoMov === 'texto'
-                      ? 'bg-[var(--ink)] text-white'
-                      : 'bg-[var(--paper)] text-[var(--ink-muted)]'
-                  }`}
-                >
-                  Texto
-                </button>
-              </div>
-            </div>
+            <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
+              Movimientos extraordinarios
+            </h3>
 
-            {modoMov === 'lista' ? (
-              <>
-                <div className="grid grid-cols-12 gap-1.5">
-                  <div className="col-span-3">
-                    <label className="mb-1 block text-[10px] font-semibold uppercase text-[var(--ink-faint)]">
-                      Per.
-                    </label>
-                    <input
-                      type="text"
-                      value={nuevoPer}
-                      onChange={(e) => setNuevoPer(e.target.value)}
-                      placeholder="6"
-                      className="w-full border border-[var(--line-strong)] px-2 py-1.5 font-mono-num text-xs outline-none focus:border-[var(--ink)]"
-                    />
-                  </div>
-                  <div className="col-span-4">
-                    <label className="mb-1 block text-[10px] font-semibold uppercase text-[var(--ink-faint)]">
-                      Tipo
-                    </label>
-                    <select
-                      value={nuevoSigno}
-                      onChange={(e) => setNuevoSigno(Number(e.target.value) as 1 | -1)}
-                      className="w-full border border-[var(--line-strong)] bg-white px-1.5 py-1.5 text-xs outline-none focus:border-[var(--ink)]"
-                    >
-                      <option value={1}>{tipoTabla === 'prestamo' ? 'Abono (+)' : 'Depósito (+)'}</option>
-                      <option value={-1}>{tipoTabla === 'prestamo' ? 'Desemb. (-)' : 'Retiro (-)'}</option>
-                    </select>
-                  </div>
-                  <div className="col-span-5">
-                    <label className="mb-1 block text-[10px] font-semibold uppercase text-[var(--ink-faint)]">
-                      Monto ($)
-                    </label>
-                    <input
-                      type="text"
-                      value={nuevoMonto}
-                      onChange={(e) => setNuevoMonto(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && agregarMovimiento()}
-                      placeholder="500.000"
-                      className="w-full border border-[var(--line-strong)] px-2 py-1.5 font-mono-num text-xs outline-none focus:border-[var(--ink)]"
-                    />
-                  </div>
-                </div>
-                {errorMov && <p className="text-xs text-[var(--crimson)]">{errorMov}</p>}
-                <button
-                  type="button"
-                  onClick={agregarMovimiento}
-                  className="inline-flex w-full cursor-pointer items-center justify-center gap-1.5 border border-[var(--ink)] bg-[var(--ink)] py-1.5 text-xs font-semibold text-white hover:border-[var(--emerald)] hover:bg-[var(--emerald)]"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Añadir movimiento
-                </button>
-
-                {movItems.length > 0 && (
-                  <ul className="divide-y divide-[var(--line)] border-t border-[var(--line)] pt-2">
-                    {movItems.map((m) => (
-                      <li key={m.id} className="flex items-center justify-between py-1.5 text-xs">
-                        <div className="flex items-center gap-2 font-mono-num">
-                          <span className="border border-[var(--line)] bg-[var(--paper)] px-1.5 py-0.5 text-[10px] font-semibold">
-                            P{m.periodo}
-                          </span>
-                          <span
-                            className={
-                              m.monto >= 0
-                                ? 'font-semibold text-[var(--emerald)]'
-                                : 'font-semibold text-[var(--crimson)]'
-                            }
-                          >
-                            {m.monto >= 0 ? '+' : ''}
-                            {fmtDinero(m.monto)}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setMovItems((prev) => prev.filter((x) => x.id !== m.id))}
-                          className="cursor-pointer p-1 text-[var(--ink-faint)] hover:text-[var(--crimson)]"
-                          aria-label="Quitar movimiento"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            ) : (
-              <div className="space-y-1.5">
-                <p className="text-[11px] text-[var(--ink-faint)]">
-                  Una línea por movimiento: <code className="text-[var(--ink)]">6: 500000</code> (positivo ={' '}
-                  {tipoTabla === 'prestamo' ? 'abono extra' : 'depósito'}, negativo ={' '}
-                  {tipoTabla === 'prestamo' ? 'desembolso' : 'retiro'}).
-                </p>
-                <textarea
-                  rows={5}
-                  value={movTexto}
-                  onChange={(e) => setMovTexto(e.target.value)}
-                  placeholder={'6: 500000\n9: -200000'}
-                  className="w-full border border-[var(--line-strong)] bg-[var(--paper)] p-2.5 font-mono-num text-xs outline-none focus:border-[var(--ink)]"
+            <div className="grid grid-cols-12 gap-1.5">
+              <div className="col-span-3">
+                <label className="mb-1 block text-[10px] font-semibold uppercase text-[var(--ink-faint)]">
+                  Per.
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={nuevoPer}
+                  onChange={(e) => setNuevoPer(formatearEntradaEntero(e.target.value, 4))}
+                  placeholder="6"
+                  className="w-full border border-[var(--line-strong)] px-2 py-1.5 font-mono-num text-xs outline-none focus:border-[var(--ink)]"
                 />
               </div>
+              <div className="col-span-4">
+                <label className="mb-1 block text-[10px] font-semibold uppercase text-[var(--ink-faint)]">
+                  Tipo
+                </label>
+                <select
+                  value={nuevoSigno}
+                  onChange={(e) => setNuevoSigno(Number(e.target.value) as 1 | -1)}
+                  className="w-full border border-[var(--line-strong)] bg-white px-1.5 py-1.5 text-xs outline-none focus:border-[var(--ink)]"
+                >
+                  <option value={1}>{tipoTabla === 'prestamo' ? 'Abono (+)' : 'Depósito (+)'}</option>
+                  <option value={-1}>{tipoTabla === 'prestamo' ? 'Desemb. (-)' : 'Retiro (-)'}</option>
+                </select>
+              </div>
+              <div className="col-span-5">
+                <label className="mb-1 block text-[10px] font-semibold uppercase text-[var(--ink-faint)]">
+                  Monto ($)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={nuevoMonto}
+                  onChange={(e) => setNuevoMonto(formatearEntradaMonto(e.target.value))}
+                  onKeyDown={(e) => e.key === 'Enter' && agregarMovimiento()}
+                  placeholder="500.000"
+                  className="w-full border border-[var(--line-strong)] px-2 py-1.5 font-mono-num text-xs outline-none focus:border-[var(--ink)]"
+                />
+              </div>
+            </div>
+            {errorMov && <p className="text-xs text-[var(--crimson)]">{errorMov}</p>}
+            <button
+              type="button"
+              onClick={agregarMovimiento}
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-1.5 border border-[var(--ink)] bg-[var(--ink)] py-1.5 text-xs font-semibold text-white hover:border-[var(--emerald)] hover:bg-[var(--emerald)]"
+            >
+              <Plus className="h-3.5 w-3.5" /> Añadir movimiento
+            </button>
+
+            {movItems.length > 0 && (
+              <ul className="divide-y divide-[var(--line)] border-t border-[var(--line)] pt-2">
+                {movItems.map((m) => (
+                  <li key={m.id} className="flex items-center justify-between py-1.5 text-xs">
+                    <div className="flex items-center gap-2 font-mono-num">
+                      <span className="border border-[var(--line)] bg-[var(--paper)] px-1.5 py-0.5 text-[10px] font-semibold">
+                        P{m.periodo}
+                      </span>
+                      <span
+                        className={
+                          m.monto >= 0
+                            ? 'font-semibold text-[var(--emerald)]'
+                            : 'font-semibold text-[var(--crimson)]'
+                        }
+                      >
+                        {m.monto >= 0 ? '+' : ''}
+                        {fmtDinero(m.monto)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMovItems((prev) => prev.filter((x) => x.id !== m.id))}
+                      className="cursor-pointer p-1 text-[var(--ink-faint)] hover:text-[var(--crimson)]"
+                      aria-label="Quitar movimiento"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>
@@ -1058,7 +1138,8 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
               <p className="mt-1.5 max-w-md text-xs text-[var(--ink-muted)]">
                 Complete el {tipoTabla === 'prestamo' ? 'monto del préstamo' : 'saldo inicial'}, la
                 tasa periódica i (%) y el número de periodos n. Después podrá hacer clic en
-                cualquier fila de la tabla para ubicar ese periodo directamente en la gráfica.
+                cualquier fila de la tabla para ubicar ese periodo directamente en la gráfica o
+                maximizarla.
               </p>
             </div>
           ) : calculo.estado === 'error' ? (
@@ -1189,6 +1270,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                         </span>
                       </>
                     )}
+                    <ExpandButton onClick={() => setGraficaAmpliada(true)} />
                   </div>
                 </div>
 
@@ -1208,6 +1290,35 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                   />
                 )}
               </div>
+
+              <ExpandableModal
+                open={graficaAmpliada}
+                onClose={() => setGraficaAmpliada(false)}
+                title={
+                  graficaVista === 'saldo'
+                    ? 'Curva de evolución del saldo'
+                    : 'Composición de cada cuota (interés vs. capital)'
+                }
+                subtitle="Haga clic sobre cualquier punto o barra para fijar el periodo"
+              >
+                <div className="border border-[var(--line)] bg-white">
+                  {graficaVista === 'saldo' ? (
+                    <GraficaSaldoPrestamo
+                      filas={calculo.data.filas}
+                      filasBase={calculo.data.filasBase}
+                      hayExtras={calculo.hayExtras}
+                      selectedPeriodo={selectedPeriodo}
+                      onSelectPeriodo={setSelectedPeriodo}
+                    />
+                  ) : (
+                    <GraficaBarrasCuota
+                      filas={calculo.data.filas}
+                      selectedPeriodo={selectedPeriodo}
+                      onSelectPeriodo={setSelectedPeriodo}
+                    />
+                  )}
+                </div>
+              </ExpandableModal>
             </>
           ) : (
             <>
@@ -1222,16 +1333,19 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                   <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
                     Evolución del saldo de la cuenta
                   </h3>
-                  {selectedPeriodo !== null && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPeriodo(null)}
-                      className="inline-flex cursor-pointer items-center gap-1 border border-[var(--cobalt)] bg-[var(--cobalt-soft)] px-2 py-1 font-mono-num text-[11px] font-semibold text-[var(--cobalt)] hover:bg-[var(--cobalt)] hover:text-white"
-                    >
-                      Marcado: P{selectedPeriodo}
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {selectedPeriodo !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPeriodo(null)}
+                        className="inline-flex cursor-pointer items-center gap-1 border border-[var(--cobalt)] bg-[var(--cobalt-soft)] px-2 py-1 font-mono-num text-[11px] font-semibold text-[var(--cobalt)] hover:bg-[var(--cobalt)] hover:text-white"
+                      >
+                        Marcado: P{selectedPeriodo}
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                    <ExpandButton onClick={() => setGraficaAmpliada(true)} />
+                  </div>
                 </div>
                 <GraficaCuenta
                   filas={calculo.data.filas}
@@ -1239,179 +1353,89 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                   onSelectPeriodo={setSelectedPeriodo}
                 />
               </div>
+
+              <ExpandableModal
+                open={graficaAmpliada}
+                onClose={() => setGraficaAmpliada(false)}
+                title="Evolución del saldo de la cuenta"
+                subtitle="Haga clic sobre cualquier periodo para fijar el marcador"
+              >
+                <div className="border border-[var(--line)] bg-white">
+                  <GraficaCuenta
+                    filas={calculo.data.filas}
+                    selectedPeriodo={selectedPeriodo}
+                    onSelectPeriodo={setSelectedPeriodo}
+                  />
+                </div>
+              </ExpandableModal>
             </>
           )}
         </div>
       </div>
 
       {calculo.estado === 'ok' && (
-        <div className="border border-[var(--line)] bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-            <div>
-              <h3 className="font-editorial text-base font-semibold text-[var(--ink)]">
-                {calculo.tipo === 'prestamo'
-                  ? `Tabla de amortización — ${calculo.data.periodosPagados} periodos`
-                  : `Extracto de cuenta — ${calculo.data.filas.length - 1} periodos`}
-              </h3>
-              <p className="text-[11px] text-[var(--ink-faint)]">
-                Haga clic en cualquier fila para señalar ese periodo en la gráfica superior.
-                {selectedPeriodo !== null && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      chartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }
-                    className="ml-2 cursor-pointer font-semibold text-[var(--cobalt)] underline underline-offset-2"
-                  >
-                    Ver P{selectedPeriodo} en gráfica ↑
-                  </button>
-                )}
-              </p>
+        <>
+          <div className="border border-[var(--line)] bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
+              <div>
+                <h3 className="font-editorial text-base font-semibold text-[var(--ink)]">
+                  {calculo.tipo === 'prestamo'
+                    ? `Tabla de amortización — ${calculo.data.periodosPagados} periodos`
+                    : `Extracto de cuenta — ${calculo.data.filas.length - 1} periodos`}
+                </h3>
+                <p className="text-[11px] text-[var(--ink-faint)]">
+                  Haga clic en cualquier fila para señalar ese periodo en la gráfica superior.
+                  {selectedPeriodo !== null && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        chartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      }
+                      className="ml-2 cursor-pointer font-semibold text-[var(--cobalt)] underline underline-offset-2"
+                    >
+                      Ver P{selectedPeriodo} en gráfica ↑
+                    </button>
+                  )}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <ExpandButton onClick={() => setTablaAmpliada(true)} label="Ampliar tabla" />
+                <button
+                  type="button"
+                  onClick={() => exportar('csv')}
+                  className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line-strong)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--ink)] transition-colors hover:border-[var(--ink)] hover:bg-[var(--paper)]"
+                >
+                  <Download className="h-3.5 w-3.5" /> Exportar CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportar('xlsx')}
+                  className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--emerald)] bg-[var(--emerald)] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#094736]"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" /> Exportar Excel (.xlsx)
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => exportar('csv')}
-                className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--line-strong)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--ink)] transition-colors hover:border-[var(--ink)] hover:bg-[var(--paper)]"
-              >
-                <Download className="h-3.5 w-3.5" /> Exportar CSV
-              </button>
-              <button
-                type="button"
-                onClick={() => exportar('xlsx')}
-                className="inline-flex cursor-pointer items-center gap-1.5 border border-[var(--emerald)] bg-[var(--emerald)] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#094736]"
-              >
-                <FileSpreadsheet className="h-3.5 w-3.5" /> Exportar Excel (.xlsx)
-              </button>
+
+            <div className="max-h-[440px] overflow-auto ledger-scroll">
+              {renderTablaContenido()}
             </div>
           </div>
 
-          <div className="max-h-[440px] overflow-auto ledger-scroll">
-            {calculo.tipo === 'prestamo' ? (
-              <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 z-10 bg-[var(--paper-alt)]">
-                  <tr className="border-b border-[var(--line)] text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
-                    <th className="px-3 py-2.5 text-center">Per.</th>
-                    <th className="px-3 py-2.5 text-right">Saldo inicial</th>
-                    <th className="px-3 py-2.5 text-right">Cuota</th>
-                    <th className="px-3 py-2.5 text-right">Interés</th>
-                    <th className="px-3 py-2.5 text-right">Abono capital</th>
-                    <th className="px-3 py-2.5 text-right">Extra / Desemb.</th>
-                    <th className="px-3 py-2.5 text-right">Saldo final</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--line)] font-mono-num">
-                  {calculo.data.filas.map((f) => {
-                    const tieneExtra = f.extra !== null && Math.abs(f.extra) > 0.01;
-                    const esSel = selectedPeriodo === f.periodo;
-                    return (
-                      <tr
-                        key={f.periodo}
-                        onClick={() => seleccionarFila(f.periodo)}
-                        className={`cursor-pointer transition-colors ${
-                          esSel
-                            ? 'bg-[var(--cobalt-soft)] shadow-[inset_3px_0_0_0_var(--cobalt)]'
-                            : tieneExtra
-                              ? (f.extra ?? 0) > 0
-                                ? 'bg-[var(--emerald-soft)]/50 hover:bg-[var(--cobalt-soft)]/40'
-                                : 'bg-[var(--crimson-soft)]/50 hover:bg-[var(--cobalt-soft)]/40'
-                              : 'hover:bg-[var(--paper)]'
-                        }`}
-                      >
-                        <td className="px-3 py-2 text-center font-semibold">
-                          <span className={esSel ? 'text-[var(--cobalt)] font-bold' : ''}>
-                            {f.periodo}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-right text-[var(--ink-muted)]">
-                          {f.saldoInicial === null ? '—' : fmtDinero(f.saldoInicial)}
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold">
-                          {f.cuota === null ? '—' : fmtDinero(f.cuota)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-[var(--ochre)]">
-                          {f.interes === null ? '—' : fmtDinero(f.interes)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-[var(--emerald)]">
-                          {f.abono === null ? '—' : fmtDinero(f.abono)}
-                        </td>
-                        <td
-                          className={`px-3 py-2 text-right font-semibold ${
-                            tieneExtra
-                              ? (f.extra ?? 0) > 0
-                                ? 'text-[var(--cobalt)]'
-                                : 'text-[var(--crimson)]'
-                              : 'text-[var(--ink-faint)]'
-                          }`}
-                        >
-                          {f.extra === null ? '—' : fmtDinero(f.extra)}
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold text-[var(--ink)]">
-                          {fmtDinero(f.saldoFinal)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            ) : (
-              <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 z-10 bg-[var(--paper-alt)]">
-                  <tr className="border-b border-[var(--line)] text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
-                    <th className="px-3 py-2.5 text-center">Per.</th>
-                    <th className="px-3 py-2.5 text-right">Saldo inicial</th>
-                    <th className="px-3 py-2.5 text-right">Interés</th>
-                    <th className="px-3 py-2.5 text-right">Depósito (+) / Retiro (-)</th>
-                    <th className="px-3 py-2.5 text-right">Saldo final</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--line)] font-mono-num">
-                  {calculo.data.filas.map((f) => {
-                    const mov = f.movimiento ?? 0;
-                    const esSel = selectedPeriodo === f.periodo;
-                    return (
-                      <tr
-                        key={f.periodo}
-                        onClick={() => seleccionarFila(f.periodo)}
-                        className={`cursor-pointer transition-colors ${
-                          esSel
-                            ? 'bg-[var(--cobalt-soft)] shadow-[inset_3px_0_0_0_var(--cobalt)]'
-                            : 'hover:bg-[var(--paper)]'
-                        }`}
-                      >
-                        <td className="px-3 py-2 text-center font-semibold">
-                          <span className={esSel ? 'text-[var(--cobalt)] font-bold' : ''}>
-                            {f.periodo}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-right text-[var(--ink-muted)]">
-                          {f.saldoInicial === null ? '—' : fmtDinero(f.saldoInicial)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-[var(--ochre)]">
-                          {f.interes === null ? '—' : fmtDinero(f.interes)}
-                        </td>
-                        <td
-                          className={`px-3 py-2 text-right font-semibold ${
-                            mov > 0
-                              ? 'text-[var(--emerald)]'
-                              : mov < 0
-                                ? 'text-[var(--crimson)]'
-                                : 'text-[var(--ink-faint)]'
-                          }`}
-                        >
-                          {f.movimiento === null ? '—' : fmtDinero(f.movimiento)}
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold text-[var(--ink)]">
-                          {fmtDinero(f.saldoFinal)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
+          <ExpandableModal
+            open={tablaAmpliada}
+            onClose={() => setTablaAmpliada(false)}
+            title={
+              calculo.tipo === 'prestamo'
+                ? `Tabla de amortización completa (${calculo.data.periodosPagados} periodos)`
+                : `Extracto de cuenta completo (${calculo.data.filas.length - 1} periodos)`
+            }
+            subtitle="Haga clic en una fila para seleccionarla también en la gráfica"
+            allowZoom={false}
+          >
+            <div className="border border-[var(--line)] bg-white">{renderTablaContenido()}</div>
+          </ExpandableModal>
+        </>
       )}
     </div>
   );

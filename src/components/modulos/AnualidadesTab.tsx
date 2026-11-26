@@ -14,6 +14,7 @@ import {
   type ResultadoAnualidad,
   type TipoAnualidad,
 } from '../../lib/finanzas';
+import { ExpandButton, ExpandableModal } from '../ui/ExpandableModal';
 import { FieldInput } from '../ui/FieldInput';
 import { FormulaBar } from '../ui/FormulaBar';
 import { KpiTile } from '../ui/KpiTile';
@@ -22,7 +23,7 @@ interface Props {
   tasaTransferida?: { valorPct: string; token: number } | null;
 }
 
-function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
+function DiagramaAnualidadSVG({ res }: { res: ResultadoAnualidad }) {
   const W = 640;
   const H = 200;
   const padX = 44;
@@ -38,98 +39,126 @@ function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
     : [...periodos.slice(0, 6), ...periodos.slice(-5)];
 
   return (
-    <div className="border border-[var(--line)] bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-2.5">
-        <div>
-          <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
-            Esquema temporal de la anualidad ({res.n} pagos)
-          </h3>
-          <p className="text-[11px] text-[var(--ink-faint)]">
-            {res.tipo === 'anticipada'
-              ? 'Pagos al inicio de cada periodo (t = 0 hasta n - 1)'
-              : res.tipo === 'diferida'
-                ? `${res.gracia} periodos de gracia · primer pago en t = ${res.gracia + 1}`
-                : 'Pagos al final de cada periodo (t = 1 hasta n)'}
-          </p>
-        </div>
-        <div className="flex items-center gap-3 text-[11px] text-[var(--ink-muted)]">
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 bg-[var(--emerald)]" /> Cuotas R
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 bg-[var(--cobalt)]" /> VP / VF
-          </span>
-        </div>
-      </div>
+    <div className="chart-grid-bg overflow-x-auto p-2">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto min-w-[500px] w-full select-none">
+        {res.tipo === 'diferida' && res.gracia > 0 && (
+          <g>
+            <rect
+              x={xOf(0)}
+              y={30}
+              width={xOf(res.gracia) - xOf(0)}
+              height={axisY - 30}
+              fill="#b45309"
+              fillOpacity="0.12"
+              className="svg-smooth"
+            />
+            <text
+              x={(xOf(0) + xOf(res.gracia)) / 2}
+              y={46}
+              textAnchor="middle"
+              className="fill-[#b45309] font-mono-num text-[10px] font-semibold"
+            >
+              Gracia ({res.gracia})
+            </text>
+          </g>
+        )}
 
-      <div className="chart-grid-bg overflow-x-auto p-2">
-        <svg viewBox={`0 0 ${W} ${H}`} className="h-auto min-w-[500px] w-full select-none">
-          {res.tipo === 'diferida' && res.gracia > 0 && (
-            <g>
-              <rect
-                x={xOf(0)}
-                y={30}
-                width={xOf(res.gracia) - xOf(0)}
-                height={axisY - 30}
-                fill="#b45309"
-                fillOpacity="0.12"
-                className="svg-smooth"
-              />
-              <text
-                x={(xOf(0) + xOf(res.gracia)) / 2}
-                y={46}
-                textAnchor="middle"
-                className="fill-[#b45309] font-mono-num text-[10px] font-semibold"
-              >
-                Gracia ({res.gracia})
+        <line x1={padX - 10} x2={W - padX + 10} y1={axisY} y2={axisY} stroke="#171614" strokeWidth="2" />
+
+        <g className="svg-smooth">
+          <line x1={xOf(0)} x2={xOf(0)} y1={axisY} y2={axisY - 66} stroke="#1d4ed8" strokeWidth="2.8" />
+          <polygon points={`${xOf(0)},${axisY - 73} ${xOf(0) - 5},${axisY - 64} ${xOf(0) + 5},${axisY - 64}`} fill="#1d4ed8" />
+          <text x={xOf(0)} y={axisY - 78} textAnchor="middle" className="fill-[#1d4ed8] font-mono-num text-[10px] font-bold">
+            VP {fmtDineroCorto(res.vp)}
+          </text>
+        </g>
+
+        <g className="svg-smooth">
+          <line x1={xOf(maxP)} x2={xOf(maxP)} y1={axisY} y2={axisY - 66} stroke="#b45309" strokeWidth="2.4" strokeDasharray="4 2" />
+          <polygon points={`${xOf(maxP)},${axisY - 73} ${xOf(maxP) - 5},${axisY - 64} ${xOf(maxP) + 5},${axisY - 64}`} fill="#b45309" />
+          <text x={xOf(maxP)} y={axisY - 78} textAnchor="middle" className="fill-[#b45309] font-mono-num text-[10px] font-bold">
+            VF {fmtDineroCorto(res.vf)}
+          </text>
+        </g>
+
+        {mostrados.map((p, idx) => {
+          const x = xOf(p);
+          return (
+            <g key={`${p}-${idx}`} className="svg-smooth">
+              <line x1={x} x2={x} y1={axisY} y2={axisY + 42} stroke="#0d5c46" strokeWidth="2.2" />
+              <polygon points={`${x},${axisY + 48} ${x - 4},${axisY + 40} ${x + 4},${axisY + 40}`} fill="#0d5c46" />
+              <text x={x} y={axisY + 61} textAnchor="middle" className="fill-[#5c584f] font-mono-num text-[9px]">
+                {p}
               </text>
             </g>
-          )}
+          );
+        })}
 
-          <line x1={padX - 10} x2={W - padX + 10} y1={axisY} y2={axisY} stroke="#171614" strokeWidth="2" />
-
-          <g className="svg-smooth">
-            <line x1={xOf(0)} x2={xOf(0)} y1={axisY} y2={axisY - 66} stroke="#1d4ed8" strokeWidth="2.8" />
-            <polygon points={`${xOf(0)},${axisY - 73} ${xOf(0) - 5},${axisY - 64} ${xOf(0) + 5},${axisY - 64}`} fill="#1d4ed8" />
-            <text x={xOf(0)} y={axisY - 78} textAnchor="middle" className="fill-[#1d4ed8] font-mono-num text-[10px] font-bold">
-              VP {fmtDineroCorto(res.vp)}
-            </text>
-          </g>
-
-          <g className="svg-smooth">
-            <line x1={xOf(maxP)} x2={xOf(maxP)} y1={axisY} y2={axisY - 66} stroke="#b45309" strokeWidth="2.4" strokeDasharray="4 2" />
-            <polygon points={`${xOf(maxP)},${axisY - 73} ${xOf(maxP) - 5},${axisY - 64} ${xOf(maxP) + 5},${axisY - 64}`} fill="#b45309" />
-            <text x={xOf(maxP)} y={axisY - 78} textAnchor="middle" className="fill-[#b45309] font-mono-num text-[10px] font-bold">
-              VF {fmtDineroCorto(res.vf)}
-            </text>
-          </g>
-
-          {mostrados.map((p, idx) => {
-            const x = xOf(p);
-            return (
-              <g key={`${p}-${idx}`} className="svg-smooth">
-                <line x1={x} x2={x} y1={axisY} y2={axisY + 42} stroke="#0d5c46" strokeWidth="2.2" />
-                <polygon points={`${x},${axisY + 48} ${x - 4},${axisY + 40} ${x + 4},${axisY + 40}`} fill="#0d5c46" />
-                <text x={x} y={axisY + 61} textAnchor="middle" className="fill-[#5c584f] font-mono-num text-[9px]">
-                  {p}
-                </text>
-              </g>
-            );
-          })}
-
-          {!mostrarTodos && (
-            <text
-              x={W / 2}
-              y={axisY + 26}
-              textAnchor="middle"
-              className="fill-[#0d5c46] font-mono-num text-sm font-bold"
-            >
-              ··· ({res.n} pagos de {fmtDineroCorto(res.r)}) ···
-            </text>
-          )}
-        </svg>
-      </div>
+        {!mostrarTodos && (
+          <text
+            x={W / 2}
+            y={axisY + 26}
+            textAnchor="middle"
+            className="fill-[#0d5c46] font-mono-num text-sm font-bold"
+          >
+            ··· ({res.n} pagos de {fmtDineroCorto(res.r)}) ···
+          </text>
+        )}
+      </svg>
     </div>
+  );
+}
+
+function DiagramaAnualidad({ res }: { res: ResultadoAnualidad }) {
+  const [ampliado, setAmpliado] = useState(false);
+
+  return (
+    <>
+      <div className="border border-[var(--line)] bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-2.5">
+          <div>
+            <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
+              Esquema temporal de la anualidad ({res.n} pagos)
+            </h3>
+            <p className="text-[11px] text-[var(--ink-faint)]">
+              {res.tipo === 'anticipada'
+                ? 'Pagos al inicio de cada periodo (t = 0 hasta n - 1)'
+                : res.tipo === 'diferida'
+                  ? `${res.gracia} periodos de gracia · primer pago en t = ${res.gracia + 1}`
+                  : 'Pagos al final de cada periodo (t = 1 hasta n)'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--ink-muted)]">
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 bg-[var(--emerald)]" /> Cuotas R
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 bg-[var(--cobalt)]" /> VP / VF
+            </span>
+            <ExpandButton onClick={() => setAmpliado(true)} />
+          </div>
+        </div>
+
+        <div
+          className="cursor-zoom-in"
+          title="Haga clic para ampliar el esquema"
+          onClick={() => setAmpliado(true)}
+        >
+          <DiagramaAnualidadSVG res={res} />
+        </div>
+      </div>
+
+      <ExpandableModal
+        open={ampliado}
+        onClose={() => setAmpliado(false)}
+        title={`Esquema temporal de la anualidad (${res.n} pagos)`}
+        subtitle="Use los controles de zoom para inspeccionar cada periodo en detalle"
+      >
+        <div className="border border-[var(--line)] bg-white">
+          <DiagramaAnualidadSVG res={res} />
+        </div>
+      </ExpandableModal>
+    </>
   );
 }
 
@@ -265,6 +294,7 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
           <FieldInput
             id="an-monto"
             label={etiquetaMonto}
+            kind="monto"
             prefix="$"
             value={montoStr}
             onChange={setMontoStr}
@@ -275,6 +305,7 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
             <FieldInput
               id="an-i"
               label={tipo === 'general' ? 'Tasa periódica dada' : 'Tasa periódica i'}
+              kind="decimal"
               suffix="%"
               value={iStr}
               onChange={setIStr}
@@ -283,6 +314,7 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
             <FieldInput
               id="an-n"
               label="Número de pagos (n)"
+              kind="entero"
               value={nStr}
               onChange={setNStr}
               placeholder="Ej. 12"
@@ -293,6 +325,7 @@ export function AnualidadesTab({ tasaTransferida }: Props) {
             <FieldInput
               id="an-gracia"
               label="Periodos de gracia (k)"
+              kind="entero"
               suffix="per."
               value={graciaStr}
               onChange={setGraciaStr}

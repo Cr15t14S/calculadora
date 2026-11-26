@@ -14,6 +14,7 @@ import {
   vencidaAAnticipada,
 } from '../../lib/finanzas';
 import { AnimatedNumber } from '../ui/AnimatedNumber';
+import { ExpandButton, ExpandableModal } from '../ui/ExpandableModal';
 import { FieldInput } from '../ui/FieldInput';
 import { FormulaBar } from '../ui/FormulaBar';
 import { KpiTile } from '../ui/KpiTile';
@@ -28,6 +29,7 @@ type SubModo = 'nominal' | 'equivalencia' | 'ant_venc';
 
 export function ConversionTasasTab({ onEnviarTasa }: Props) {
   const [modo, setModo] = useState<SubModo>('nominal');
+  const [mapaAmpliado, setMapaAmpliado] = useState(false);
 
   const [nomJ, setNomJ] = useState('');
   const [nomM, setNomM] = useState('');
@@ -160,6 +162,49 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
     }
   };
 
+  const renderMapaBarras = () => (
+    <div className="space-y-3">
+      {escalera.map((fila) => {
+        const pctNom = Math.max(0, Math.min(100, (fila.nominalVencida / maxNominalBar) * 100));
+        const pctPer = Math.max(0, Math.min(100, (fila.periodicaVencida / maxNominalBar) * 100));
+        return (
+          <div key={fila.m} className="grid grid-cols-12 items-center gap-2 text-xs">
+            <div className="col-span-3 sm:col-span-2">
+              <span className="font-semibold text-[var(--ink)]">{fila.label}</span>
+              <span className="ml-1 font-mono-num text-[10px] text-[var(--ink-faint)]">
+                ({fila.sigla})
+              </span>
+            </div>
+            <div className="col-span-5 space-y-1 sm:col-span-6">
+              <div className="h-2.5 w-full bg-[var(--paper-alt)]">
+                <div
+                  className="h-full bg-[var(--emerald)] transition-all duration-500 ease-out"
+                  style={{ width: `${pctNom}%` }}
+                />
+              </div>
+              <div className="h-2 w-full bg-[var(--paper-alt)]">
+                <div
+                  className="h-full bg-[var(--ochre)] transition-all duration-500 ease-out"
+                  style={{ width: `${pctPer}%` }}
+                />
+              </div>
+            </div>
+            <div className="col-span-4 text-right font-mono-num text-[11px] leading-tight">
+              <div className="font-semibold text-[var(--emerald)]">
+                {fmtPct(fila.nominalVencida, 3)}{' '}
+                <span className="text-[10px] font-normal text-[var(--ink-faint)]">nom</span>
+              </div>
+              <div className="text-[var(--ochre)]">
+                {fmtPct(fila.periodicaVencida, 4)}{' '}
+                <span className="text-[10px] text-[var(--ink-faint)]">per</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="animate-panel space-y-6">
       <div className="border-b border-[var(--line)] pb-4">
@@ -229,6 +274,7 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
               <FieldInput
                 id="tn-j"
                 label="Tasa nominal anual (j)"
+                kind="decimal"
                 suffix="%"
                 value={nomJ}
                 onChange={setNomJ}
@@ -237,6 +283,7 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
               <FieldInput
                 id="tn-m"
                 label="Capitalizaciones por año (m)"
+                kind="entero"
                 suffix="/año"
                 value={nomM}
                 onChange={setNomM}
@@ -284,6 +331,7 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
               <FieldInput
                 id="te-i"
                 label="Tasa efectiva / periódica conocida"
+                kind="decimal"
                 suffix="%"
                 value={eqI}
                 onChange={setEqI}
@@ -293,6 +341,7 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                 <FieldInput
                   id="te-nc"
                   label="Periodos/año conocida"
+                  kind="entero"
                   value={eqNc}
                   onChange={setEqNc}
                   placeholder="Ej. 1"
@@ -300,6 +349,7 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
                 <FieldInput
                   id="te-nb"
                   label="Periodos/año buscada"
+                  kind="entero"
                   value={eqNb}
                   onChange={setEqNb}
                   placeholder="Ej. 12"
@@ -349,6 +399,7 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
               <FieldInput
                 id="tav-t"
                 label="Tasa periódica"
+                kind="decimal"
                 suffix="%"
                 value={avTasa}
                 onChange={setAvTasa}
@@ -381,6 +432,7 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
               <FieldInput
                 id="tav-m"
                 label="Periodos por año (opcional, para ver EA)"
+                kind="entero"
                 value={avM}
                 onChange={setAvM}
                 placeholder="Ej. 12"
@@ -625,67 +677,40 @@ export function ConversionTasasTab({ onEnviarTasa }: Props) {
             ))}
 
           {escalera.length > 0 && eaActiva !== null && (
-            <div className="border border-[var(--line)] bg-white p-4">
-              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--line)] pb-2">
-                <div>
-                  <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
-                    Mapa comparativo de tasas equivalentes (misma EA)
-                  </h3>
-                  <p className="text-[11px] text-[var(--ink-faint)]">
-                    Todas estas tasas producen exactamente {fmtPct(eaActiva, 4)} Efectiva Anual
-                  </p>
+            <>
+              <div className="border border-[var(--line)] bg-white p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-2">
+                  <div>
+                    <h3 className="font-editorial text-sm font-semibold text-[var(--ink)]">
+                      Mapa comparativo de tasas equivalentes (misma EA)
+                    </h3>
+                    <p className="text-[11px] text-[var(--ink-faint)]">
+                      Todas estas tasas producen exactamente {fmtPct(eaActiva, 4)} Efectiva Anual
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--ink-muted)]">
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block h-2.5 w-2.5 bg-[var(--emerald)]" /> Nominal anualizada
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block h-2.5 w-2.5 bg-[var(--ochre)]" /> Periódica vencida
+                    </span>
+                    <ExpandButton onClick={() => setMapaAmpliado(true)} />
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-[var(--ink-muted)]">
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-2.5 w-2.5 bg-[var(--emerald)]" /> Nominal anualizada
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-2.5 w-2.5 bg-[var(--ochre)]" /> Periódica vencida
-                  </span>
-                </div>
+                {renderMapaBarras()}
               </div>
 
-              <div className="space-y-3">
-                {escalera.map((fila) => {
-                  const pctNom = Math.max(0, Math.min(100, (fila.nominalVencida / maxNominalBar) * 100));
-                  const pctPer = Math.max(0, Math.min(100, (fila.periodicaVencida / maxNominalBar) * 100));
-                  return (
-                    <div key={fila.m} className="grid grid-cols-12 items-center gap-2 text-xs">
-                      <div className="col-span-3 sm:col-span-2">
-                        <span className="font-semibold text-[var(--ink)]">{fila.label}</span>
-                        <span className="ml-1 font-mono-num text-[10px] text-[var(--ink-faint)]">
-                          ({fila.sigla})
-                        </span>
-                      </div>
-                      <div className="col-span-5 space-y-1 sm:col-span-6">
-                        <div className="h-2.5 w-full bg-[var(--paper-alt)]">
-                          <div
-                            className="h-full bg-[var(--emerald)] transition-all duration-500 ease-out"
-                            style={{ width: `${pctNom}%` }}
-                          />
-                        </div>
-                        <div className="h-2 w-full bg-[var(--paper-alt)]">
-                          <div
-                            className="h-full bg-[var(--ochre)] transition-all duration-500 ease-out"
-                            style={{ width: `${pctPer}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="col-span-4 text-right font-mono-num text-[11px] leading-tight">
-                        <div className="font-semibold text-[var(--emerald)]">
-                          {fmtPct(fila.nominalVencida, 3)}{' '}
-                          <span className="text-[10px] font-normal text-[var(--ink-faint)]">nom</span>
-                        </div>
-                        <div className="text-[var(--ochre)]">
-                          {fmtPct(fila.periodicaVencida, 4)}{' '}
-                          <span className="text-[10px] text-[var(--ink-faint)]">per</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+              <ExpandableModal
+                open={mapaAmpliado}
+                onClose={() => setMapaAmpliado(false)}
+                title="Mapa comparativo de tasas equivalentes"
+                subtitle={`Todas las frecuencias equivalentes a ${fmtPct(eaActiva, 4)} Efectiva Anual`}
+                allowZoom={false}
+              >
+                <div className="border border-[var(--line)] bg-white p-6">{renderMapaBarras()}</div>
+              </ExpandableModal>
+            </>
           )}
         </div>
       </div>
