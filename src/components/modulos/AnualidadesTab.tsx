@@ -196,9 +196,9 @@ function DiagramaAnualidadSVG({
             x={W / 2}
             y={axisY + 26}
             textAnchor="middle"
-            className="fill-[#0d5c46] font-mono-num text-sm font-bold"
+            className="fill-[#0d5c46] font-mono-num text-xs font-bold"
           >
-            ··· ({res.n} pagos de {fmtDineroCorto(res.r)} · clic en Ampliar para ver todos) ···
+            ··· ({res.n} pagos de {fmtDineroCorto(res.r)}) ···
           </text>
         )}
       </svg>
