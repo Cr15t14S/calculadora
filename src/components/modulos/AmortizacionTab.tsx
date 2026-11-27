@@ -12,12 +12,14 @@ import {
 } from 'lucide-react';
 import {
   ErrorFinanciero,
+  FRECUENCIAS_TASA,
   agruparMovimientos,
   exportarCSV,
   exportarExcel,
   fmtDinero,
   fmtDineroCorto,
   fmtNum,
+  fmtPct,
   formatearEntradaEntero,
   formatearEntradaMonto,
   parsearEnteroPositivo,
@@ -25,6 +27,7 @@ import {
   parsearTasa,
   tablaCuenta,
   tablaPrestamo,
+  tasaEquivalente,
   type FilaCuenta,
   type FilaPrestamo,
   type ModoPrestamo,
@@ -639,8 +642,12 @@ function GraficaCuenta({
 export function AmortizacionTab({ tasaTransferida }: Props) {
   const [tipoTabla, setTipoTabla] = useState<'prestamo' | 'cuenta'>('prestamo');
   const [vpStr, setVpStr] = useState('');
+  const [modoEntradaTasa, setModoEntradaTasa] = useState<'periodica' | 'nominal'>('periodica');
   const [iStr, setIStr] = useState('');
   const [nStr, setNStr] = useState('');
+  const [tasaNominalStr, setTasaNominalStr] = useState('');
+  const [frecNominal, setFrecNominal] = useState('12');
+  const [aniosStr, setAniosStr] = useState('');
   const [depStr, setDepStr] = useState('');
   const [modoPrestamo, setModoPrestamo] = useState<ModoPrestamo>('cuota');
 
@@ -658,6 +665,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
 
   useEffect(() => {
     if (tasaTransferida) {
+      setModoEntradaTasa('periodica');
       setIStr(tasaTransferida.valorPct);
     }
   }, [tasaTransferida]);
@@ -667,7 +675,14 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
       const periodo = parsearEnteroPositivo(nuevoPer, 'Periodo');
       const montoAbs = parsearNumero(nuevoMonto, 'Monto del movimiento', { esMonto: true });
       if (montoAbs <= 0) throw new ErrorFinanciero('Ingrese un monto positivo.');
-      const nActual = nStr.trim() ? Number(nStr) : null;
+      const nActual =
+        modoEntradaTasa === 'periodica'
+          ? nStr.trim()
+            ? Number(nStr)
+            : null
+          : aniosStr.trim()
+            ? Number(aniosStr) * 12
+            : null;
       if (
         nActual !== null &&
         Number.isInteger(nActual) &&
@@ -695,7 +710,12 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
   };
 
   const calculo = useMemo(() => {
-    if (!vpStr.trim() || !iStr.trim() || !nStr.trim()) {
+    const faltan =
+      !vpStr.trim() ||
+      (modoEntradaTasa === 'periodica'
+        ? !iStr.trim() || !nStr.trim()
+        : !tasaNominalStr.trim() || !aniosStr.trim());
+    if (faltan) {
       return { estado: 'vacio' as const };
     }
 
@@ -705,8 +725,26 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
         tipoTabla === 'prestamo' ? 'Monto del préstamo VP' : 'Saldo inicial',
         { esMonto: true }
       );
-      const i = parsearTasa(iStr, 'Tasa periódica i');
-      const n = parsearEnteroPositivo(nStr, 'Número de periodos n');
+
+      let i: number;
+      let n: number;
+      let conversionInfo: { iMensual: number; nMeses: number } | null = null;
+
+      if (modoEntradaTasa === 'periodica') {
+        i = parsearTasa(iStr, 'Tasa periódica i');
+        n = parsearEnteroPositivo(nStr, 'Número de periodos n');
+      } else {
+        const j = parsearTasa(tasaNominalStr, 'Tasa nominal anual');
+        const m = parsearEnteroPositivo(frecNominal, 'Capitalización');
+        const anios = parsearEnteroPositivo(aniosStr, 'Plazo (años)');
+        if (anios > 100) {
+          throw new ErrorFinanciero('El plazo máximo permitido es de 100 años (1.200 meses).');
+        }
+        i = tasaEquivalente(j / m, m, 12);
+        n = anios * 12;
+        conversionInfo = { iMensual: i, nMeses: n };
+      }
+
       const movs = agruparMovimientos(movItems);
 
       if (tipoTabla === 'prestamo') {
@@ -716,6 +754,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
           tipo: 'prestamo' as const,
           data: res,
           hayExtras: Object.keys(movs).length > 0,
+          conversionInfo,
         };
       }
 
@@ -726,6 +765,7 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
         tipo: 'cuenta' as const,
         data: res,
         hayExtras: Object.keys(movs).length > 0,
+        conversionInfo,
       };
     } catch (e) {
       return {
@@ -733,7 +773,19 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
         error: e instanceof ErrorFinanciero ? e.message : 'Revise los datos ingresados.',
       };
     }
-  }, [tipoTabla, vpStr, iStr, nStr, depStr, modoPrestamo, movItems]);
+  }, [
+    tipoTabla,
+    vpStr,
+    modoEntradaTasa,
+    iStr,
+    nStr,
+    tasaNominalStr,
+    frecNominal,
+    aniosStr,
+    depStr,
+    modoPrestamo,
+    movItems,
+  ]);
 
   useEffect(() => {
     if (selectedPeriodo === null || calculo.estado !== 'ok') return;
@@ -964,24 +1016,103 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
               onChange={setVpStr}
               placeholder="Ej. 1.000.000"
             />
-            <div className="grid grid-cols-2 gap-3">
-              <FieldInput
-                id="am-i"
-                label="Tasa periódica i"
-                kind="decimal"
-                suffix="%"
-                value={iStr}
-                onChange={setIStr}
-                placeholder="Ej. 2"
-              />
-              <FieldInput
-                id="am-n"
-                label="Periodos (n)"
-                kind="entero"
-                value={nStr}
-                onChange={setNStr}
-                placeholder="Ej. 12"
-              />
+
+            <div className="space-y-3 border-t border-[var(--line)] pt-3">
+              <div className="grid grid-cols-2 border border-[var(--line)] text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setModoEntradaTasa('periodica')}
+                  className={`cursor-pointer py-1.5 transition-colors ${
+                    modoEntradaTasa === 'periodica'
+                      ? 'bg-[var(--ink)] text-white'
+                      : 'bg-[var(--paper)] text-[var(--ink-muted)]'
+                  }`}
+                >
+                  Periódica / periodos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoEntradaTasa('nominal')}
+                  className={`cursor-pointer py-1.5 transition-colors ${
+                    modoEntradaTasa === 'nominal'
+                      ? 'bg-[var(--ink)] text-white'
+                      : 'bg-[var(--paper)] text-[var(--ink-muted)]'
+                  }`}
+                >
+                  Nominal anual / años
+                </button>
+              </div>
+
+              {modoEntradaTasa === 'periodica' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <FieldInput
+                    id="am-i"
+                    label="Tasa periódica i"
+                    kind="decimal"
+                    suffix="%"
+                    value={iStr}
+                    onChange={setIStr}
+                    placeholder="Ej. 2"
+                  />
+                  <FieldInput
+                    id="am-n"
+                    label="Periodos (n)"
+                    kind="entero"
+                    value={nStr}
+                    onChange={setNStr}
+                    placeholder="Ej. 12"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <FieldInput
+                      id="am-j"
+                      label="Tasa nominal anual"
+                      kind="decimal"
+                      suffix="%"
+                      value={tasaNominalStr}
+                      onChange={setTasaNominalStr}
+                      placeholder="Ej. 12"
+                    />
+                    <FieldInput
+                      id="am-anios"
+                      label="Plazo (años)"
+                      kind="entero"
+                      maxDigitos={3}
+                      value={aniosStr}
+                      onChange={setAniosStr}
+                      placeholder="Ej. 10"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="am-frec"
+                      className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-muted)]"
+                    >
+                      Capitalización de la tasa nominal
+                    </label>
+                    <select
+                      id="am-frec"
+                      value={frecNominal}
+                      onChange={(e) => setFrecNominal(e.target.value)}
+                      className="w-full border border-[var(--line-strong)] bg-white px-2.5 py-2 text-xs outline-none focus:border-[var(--ink)]"
+                    >
+                      {FRECUENCIAS_TASA.filter((f) => [365, 360, 12, 4, 2, 1].includes(f.m)).map((f) => (
+                        <option key={f.id} value={f.m}>
+                          {f.label} ({f.m}/año)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {calculo.estado === 'ok' && calculo.conversionInfo && (
+                    <div className="border border-[var(--cobalt)] bg-[var(--cobalt-soft)] px-2.5 py-1.5 font-mono-num text-[11px] text-[var(--cobalt)]">
+                      Equivalente mensual: <strong>{fmtPct(calculo.conversionInfo.iMensual, 4)} EM</strong> ·{' '}
+                      <strong>{calculo.conversionInfo.nMeses} meses</strong>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {tipoTabla === 'prestamo' ? (
@@ -1034,6 +1165,8 @@ export function AmortizacionTab({ tasaTransferida }: Props) {
                   setVpStr('');
                   setIStr('');
                   setNStr('');
+                  setTasaNominalStr('');
+                  setAniosStr('');
                   setDepStr('');
                   setMovItems([]);
                   setSelectedPeriodo(null);
